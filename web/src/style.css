@@ -153,3 +153,9 @@ header .spacer { flex: 1; }
   main { grid-template-columns: 1fr; }
   .split { display: none; }
 }
+
+/* Row items never shrink: a long value must not squeeze the checkbox or caret. */
+.trow > *, .drow > *, .srow > div > * { flex-shrink: 0; }
+.trow input[type=checkbox], .drow input[type=checkbox], .srow input[type=checkbox] {
+  width: 13px; height: 13px; margin: 0 2px; flex: none;
+}
