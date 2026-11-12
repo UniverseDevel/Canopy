@@ -114,6 +114,7 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("GET /api/models/versions", s.modelVersions)
 	api.HandleFunc("POST /api/models/load", s.modelLoad)
 	api.HandleFunc("POST /api/models/auto", s.modelAuto)
+	api.HandleFunc("GET /api/models/report", s.modelReport)
 	mux.Handle("/api/", s.guard(api))
 	return s.secure(mux)
 }
@@ -468,4 +469,13 @@ func (s *Server) modelAuto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, res)
+}
+
+func (s *Server) modelReport(w http.ResponseWriter, r *http.Request) {
+	rep, err := s.svc.MatchReport(r.URL.Query().Get("session"))
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, rep)
 }

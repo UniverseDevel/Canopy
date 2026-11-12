@@ -119,3 +119,9 @@ export const modelsApi = {
   load: (source: string, version: string) => call<ModelResult>("POST", "/api/models/load", { source, version }),
   auto: (session: string) => call<ModelResult>("POST", "/api/models/auto", { session }),
 };
+
+export interface MatchEntry { module: string; status: string; advertised?: string; loaded?: string; file?: string }
+export interface MatchReport { counts: Record<string, number>; entries: MatchEntry[] }
+export const reportApi = {
+  get: (session: string) => call<MatchReport>("GET", `/api/models/report?session=${encodeURIComponent(session)}`),
+};

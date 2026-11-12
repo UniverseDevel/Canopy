@@ -375,3 +375,17 @@ func (s *Service) AutoModels(ctx context.Context, id string, progress func(strin
 	res.Detection = d
 	return res, nil
 }
+
+// MatchReport compares a session's Capabilities with the current schema.
+func (s *Service) MatchReport(id string) (*models.MatchReport, error) {
+	sess, err := s.Session(id)
+	if err != nil {
+		return nil, err
+	}
+	t, err := s.Tree()
+	if err != nil {
+		return nil, err
+	}
+	r := models.Report(sess.Capabilities, t.Modules)
+	return &r, nil
+}

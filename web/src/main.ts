@@ -1,4 +1,4 @@
-import { api, ApiError, GetResult, modelsApi, ModelSource, NodeDetail, Preset, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
+import { api, ApiError, GetResult, MatchReport, modelsApi, ModelSource, reportApi, NodeDetail, Preset, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
 import { $, append, clear, copyText, h, toast } from "./dom";
 import { Num, stringify } from "./json";
 import { VirtualList } from "./vlist";
@@ -56,6 +56,7 @@ const modelSrcSel = h("select", { title: "Model source" }, h("option", { value: 
 const modelVerSel = h("select", { title: "Version" }, h("option", { value: "" }, "version"));
 const modelLoadBtn = h("button", { class: "small", onclick: () => loadModelSet() }, "Load");
 const modelStatus = h("div", { class: "muted small model-status" });
+const reportLine = h("div", { class: "small report-line" });
 
 const yangInput = h("input", { placeholder: "YANG folder(s), separated by ;", value: store.get("yang") });
 const loadBtn = h("button", { onclick: () => loadSchema() }, "Load");
@@ -141,7 +142,7 @@ function showTab(t: Tab) {
 const leftPane = h("section", { class: "pane left" },
   h("div", { class: "models-panel" },
     h("div", { class: "row" }, h("strong", {}, "Models"), modelSrcSel, modelVerSel, modelLoadBtn),
-    modelStatus,
+    modelStatus, reportLine,
     h("details", { class: "local-models" }, h("summary", { class: "muted small" }, "Local folder instead"),
       h("div", { class: "row" }, yangInput, loadBtn))),
   schemaInfo, searchInput, treeHost);
@@ -719,6 +720,7 @@ async function schemaLoaded(s: SchemaSummary) {
   await loadChildren(-1);
   refreshTree();
   renderFooter();
+  refreshReport();
 }
 
 async function loadChildren(id: number) {
@@ -1129,3 +1131,53 @@ async function generate() {
 
 mount();
 renderData();
+
+// ---------- match report (advertised vs loaded models) ----------
+
+let lastReport: MatchReport | null = null;
+
+async function refreshReport() {
+  clear(reportLine);
+  lastReport = null;
+  if (!S.session || !S.schema) return;
+  try {
+    const r = await reportApi.get(S.session.id);
+    lastReport = r;
+    const c = (k: string) => r.counts[k] ?? 0;
+    const bad = c("mismatch") + c("missing");
+    reportLine.append(h("button", {
+      class: "link " + (bad ? "warn" : "ok"), title: "Compare the models the device advertises with the loaded models",
+      onclick: () => showReport(),
+    }, `${c("match")} match · ${c("mismatch")} mismatch · ${c("missing")} missing${c("loaded") ? ` · ${c("loaded")} unversioned` : ""}`));
+  } catch { /* no session or schema */ }
+}
+
+function showReport() {
+  const r = lastReport;
+  if (!r) return;
+  const filter = h("input", { type: "search", placeholder: "Filter modules" });
+  const statusSel = h("select", {}, h("option", { value: "" }, "all advertised"),
+    ...["mismatch", "missing", "loaded", "match", "extra"].map((s) => h("option", { value: s }, `${s} (${r.counts[s] ?? 0})`)));
+  const body = h("tbody");
+  const draw = () => {
+    clear(body);
+    const q = filter.value.toLowerCase();
+    for (const e of r.entries) {
+      if (statusSel.value ? e.status !== statusSel.value : e.status === "extra") continue;
+      if (q && !e.module.toLowerCase().includes(q)) continue;
+      body.append(h("tr", {}, h("td", {}, h("span", { class: `st st-${e.status}` }, e.status)), h("td", {}, e.module),
+        h("td", {}, e.advertised ?? ""), h("td", {}, e.loaded ?? "")));
+    }
+  };
+  filter.addEventListener("input", draw);
+  statusSel.addEventListener("change", draw);
+  draw();
+  modal("Model match report",
+    h("div", { class: "report" },
+      h("p", { class: "muted small" }, "Each model the device advertises in Capabilities, compared with the loaded modules (revision date, or OpenConfig version). \"extra\" lists loaded modules the device doesn't advertise, such as imports."),
+      h("div", { class: "row" }, filter, statusSel,
+        h("button", { class: "small", onclick: () => copyText(stringify(r), "match report JSON") }, "Copy JSON")),
+      h("div", { class: "report-table" }, h("table", { class: "grid" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Status"), h("th", {}, "Module"), h("th", {}, "Advertised"), h("th", {}, "Loaded"))), body))),
+    []);
+}

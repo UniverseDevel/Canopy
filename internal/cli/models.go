@@ -7,6 +7,7 @@ import (
 
 	"github.com/UniverseDevel/Canopy/internal/apperr"
 	"github.com/UniverseDevel/Canopy/internal/models"
+	"github.com/UniverseDevel/Canopy/internal/schema"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +20,7 @@ repositories) and cached in the user cache folder, so each version is fetched on
 Set GITHUB_TOKEN if the GitHub API rate limit (60 requests an hour without a
 token) gets in the way.`,
 	}
-	c.AddCommand(newModelsSourcesCmd(g), newModelsVersionsCmd(g), newModelsFetchCmd(g), newModelsDetectCmd(g))
+	c.AddCommand(newModelsSourcesCmd(g), newModelsVersionsCmd(g), newModelsFetchCmd(g), newModelsDetectCmd(g), newModelsReportCmd(g))
 	return c
 }
 
@@ -153,4 +154,78 @@ func (g *globals) resolveModels(cmd *cobra.Command, spec string) (*models.Set, e
 		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "--models must be SOURCE@VERSION, e.g. srlinux@v26.7.1 (see 'canopy models sources')")
 	}
 	return g.service().Models.Fetch(ctx(cmd), src, ver, g.progress())
+}
+
+func newModelsReportCmd(g *globals) *cobra.Command {
+	var f targetFlags
+	var dirs []string
+	var spec string
+	var all bool
+	cmd := &cobra.Command{
+		Use:   "report",
+		Short: "Compare the models a device advertises with the loaded models",
+		Long: `Connects, loads models (--models SOURCE@VERSION, --yang folders, or detected
+from the device when neither is given) and lists each advertised model as match,
+mismatch (other revision or OpenConfig version), loaded (no comparable version) or
+missing. --all also lists loaded modules the device doesn't advertise.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			t, err := g.target(&f, true)
+			if err != nil {
+				return err
+			}
+			svc := g.service()
+			defer svc.Close()
+			sess, err := g.connect(ctx(cmd), svc, t)
+			if err != nil {
+				return err
+			}
+			switch {
+			case spec != "":
+				src, ver, _ := strings.Cut(spec, "@")
+				if _, err := svc.LoadModels(ctx(cmd), src, ver, g.progress()); err != nil {
+					return err
+				}
+			case len(dirs) > 0:
+				if _, err := svc.LoadSchema(dirs, schema.LoadOptions{}); err != nil {
+					return err
+				}
+			default:
+				res, err := svc.AutoModels(ctx(cmd), sess.ID, g.progress())
+				if err != nil {
+					return err
+				}
+				if res.Schema == nil {
+					return apperr.New(apperr.ClassSchema, apperr.CodeSchema, "could not detect the models: %s", res.Detection.Reason).
+						WithHint("pass --models SOURCE@VERSION or --yang")
+				}
+			}
+			rep, err := svc.MatchReport(sess.ID)
+			if err != nil {
+				return err
+			}
+			if !all {
+				var keep []models.MatchEntry
+				for _, e := range rep.Entries {
+					if e.Status != models.MatchNotAdv {
+						keep = append(keep, e)
+					}
+				}
+				rep.Entries = keep
+			}
+			return g.result(cmd, rep, func(w io.Writer) {
+				for _, e := range rep.Entries {
+					fmt.Fprintf(w, "%-9s %-55s %-22s %s\n", e.Status, e.Module, e.Advertised, e.Loaded)
+				}
+				fmt.Fprintf(w, "\nmatch %d, mismatch %d, loaded %d, missing %d, extra %d\n",
+					rep.Counts[models.MatchOK], rep.Counts[models.MatchVersion], rep.Counts[models.MatchUnknown],
+					rep.Counts[models.MatchMissing], rep.Counts[models.MatchNotAdv])
+			})
+		},
+	}
+	addTargetFlags(cmd, &f)
+	cmd.Flags().StringVar(&spec, "models", "", "model set SOURCE@VERSION (default: detect)")
+	cmd.Flags().StringSliceVarP(&dirs, "yang", "y", nil, "local YANG folders instead")
+	cmd.Flags().BoolVar(&all, "all", false, "also list loaded modules the device doesn't advertise")
+	return cmd
 }
