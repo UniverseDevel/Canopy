@@ -196,7 +196,7 @@ button.icon { padding: 1px 6px; }
 .form-grid .field input, .form-grid .field select { width: 100%; }
 
 /* Full-height device column (vertical tabs) + workspace */
-#app { display: grid; grid-template-columns: 270px 1fr; height: 100vh; }
+#app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
 .workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .workspace > header { min-height: 34px; }
 .device-panel { max-height: none; margin: 0; height: 100vh; display: flex; flex-direction: column; gap: 8px;
@@ -213,3 +213,10 @@ button.icon { padding: 1px 6px; }
   #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
   .device-panel { height: auto; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--line); }
 }
+
+/* Device cards keep a fixed layout: the action button has a fixed width and
+   place, so its label changing (Connect / Connecting… / Disconnect) moves nothing. */
+.device { flex-wrap: nowrap; }
+.device .dev-main { flex: 1 1 0; min-width: 0; }
+.device .dev-name { overflow: hidden; white-space: nowrap; }
+.device button.act { margin-left: auto; width: 92px; text-align: center; padding-left: 0; padding-right: 0; }

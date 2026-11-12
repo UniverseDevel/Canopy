@@ -281,9 +281,9 @@ function renderDevices() {
   for (const d of devices) {
     const on = d.state === "on";
     const btn = h("button", {
-      class: "small" + (on ? "" : " primary"), disabled: d.state === "busy",
+      class: "small act" + (on ? "" : " primary"), disabled: d.state === "busy",
       onclick: (e: Event) => { e.stopPropagation(); on ? disconnectDevice(d) : connectDevice(d); },
-    }, d.state === "busy" ? "…" : on ? "Disconnect" : "Connect");
+    }, d.state === "busy" ? "Connecting…" : on ? "Disconnect" : "Connect");
     const edit = h("button", {
       class: "small icon", title: d.preset?.readOnly ? "Copy into a new device" : "Edit",
       onclick: (e: Event) => { e.stopPropagation(); openDeviceDialog(d); },
