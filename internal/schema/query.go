@@ -24,7 +24,7 @@ func (t *Tree) Children(id int) []*Node {
 	if id >= 0 {
 		n := t.Node(id)
 		if n == nil {
-			return nil
+			return []*Node{}
 		}
 		ids = n.Children
 	}
@@ -37,7 +37,7 @@ func (t *Tree) Children(id int) []*Node {
 
 // Ancestors returns the ids from the root down to id's parent.
 func (t *Tree) Ancestors(id int) []int {
-	var out []int
+	out := []int{} // never nil: JSON [] for top-level nodes
 	for n := t.Node(id); n != nil && n.Parent >= 0; n = t.Node(n.Parent) {
 		out = append([]int{n.Parent}, out...)
 	}
@@ -106,7 +106,7 @@ type SearchResult struct {
 func (t *Tree) Search(q string, limit int) []SearchResult {
 	q = strings.ToLower(strings.TrimSpace(q))
 	if q == "" {
-		return nil
+		return []SearchResult{}
 	}
 	byPath := strings.Contains(q, "/")
 	var out []SearchResult
@@ -135,6 +135,9 @@ func (t *Tree) Search(q string, limit int) []SearchResult {
 	})
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
+	}
+	if out == nil {
+		out = []SearchResult{}
 	}
 	return out
 }

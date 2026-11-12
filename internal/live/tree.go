@@ -146,14 +146,10 @@ func Flatten(base string, v any, fn func(path string, leaf any)) {
 				fn(fmt.Sprintf("%s[%d]", base, i), e)
 				continue
 			}
-			sel, key := listSelector(m, i)
-			rest := make(map[string]any, len(m))
-			for k, vv := range m {
-				if k != key {
-					rest[k] = vv
-				}
-			}
-			Flatten(base+sel, rest, fn)
+			// The key leaf stays in the output (as gNMIc shows it), so an entry
+			// that only has its key still appears as a leaf.
+			sel, _ := listSelector(m, i)
+			Flatten(base+sel, m, fn)
 		}
 	default:
 		fn(base, v)

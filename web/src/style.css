@@ -236,3 +236,13 @@ button.icon { padding: 1px 6px; }
 .st { font: 600 10.5px var(--mono); padding: 0 5px; border-radius: 3px; }
 .st-match { color: var(--ok); } .st-mismatch { color: var(--kind-ll); } .st-missing { color: var(--err); }
 .st-loaded, .st-extra { color: var(--muted); }
+
+/* Data overlay markers and instances */
+.ov { font-size: 9px; flex: none; }
+.ov.data { color: var(--ok); }
+.ov.err { color: var(--err); }
+.ov.empty { color: var(--muted); }
+.instances-host table.grid { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 4px; }
+.instances-host td, .instances-host th { text-align: left; padding: 2px 6px; border-bottom: 1px solid var(--line); }
+.instances-host td.actions { text-align: right; white-space: nowrap; }
+.instances-host { max-height: 40vh; overflow: auto; }

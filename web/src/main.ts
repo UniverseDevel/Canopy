@@ -777,7 +777,7 @@ function renderTreeRow(n: SNode, depth: number) {
   const cb = h("input", { type: "checkbox", title: "Mark this path", checked: markedPaths().includes(n.path) });
   cb.addEventListener("click", (e) => e.stopPropagation());
   cb.addEventListener("change", () => toggleMark(n.path, cb.checked));
-  append(row, caret, cb, kindBadge(n), h("span", { class: "name" }, n.name),
+  append(row, caret, cb, kindBadge(n), overlayMark(n), h("span", { class: "name" }, n.name),
     n.keys?.length ? h("span", { class: "keys" }, `[${n.keys.join(" ")}]`) : null,
     n.type ? h("span", { class: "type" }, n.type.name) : null,
     h("span", { class: "rw" }, n.config ? "rw" : "ro"));
@@ -829,7 +829,7 @@ async function search(q: string) {
 // reveal expands the ancestors of id, closes the search and selects the node.
 async function reveal(id: number) {
   const d = await api.node(id);
-  for (const a of d.ancestors) {
+  for (const a of d.ancestors ?? []) {
     await loadChildren(a);
     S.expanded.add(a);
   }
@@ -886,6 +886,8 @@ function showDetails(d: NodeDetail) {
   if (n.hasChildren) rows.push(["Children", String(n.childCount)]);
   if (n.location) rows.push(["Defined at", n.location]);
   const marked = markedPaths().includes(n.path);
+  const twin = twinPath(n.path);
+  const instHost = h("div", { class: "instances-host" });
   append(details,
     h("h2", {}, kindBadge(n), " ", n.name),
     h("div", { class: "path-box" },
@@ -894,7 +896,13 @@ function showDetails(d: NodeDetail) {
       h("button", { class: "small", onclick: () => copyText(n.qpath, "module-qualified path") }, "Copy qualified")),
     h("div", { class: "row" },
       h("button", { class: "primary", onclick: () => { if (!markedPaths().includes(n.path)) toggleMark(n.path, true); showTab("Data"); doGet([n.path]); } }, "Get this path"),
-      h("button", { onclick: () => { toggleMark(n.path, !marked); showDetails(d); } }, marked ? "Unmark" : "Mark")),
+      h("button", { onclick: () => { toggleMark(n.path, !marked); showDetails(d); } }, marked ? "Unmark" : "Mark"),
+      n.kind === "list" && n.keys?.length ? h("button", { title: "List the entries on the device (reads only the keys)", onclick: () => showInstances(n, instHost) }, "Instances") : null,
+      twin ? h("button", {
+        title: `Go to ${twin.includes("/state/") ? "the state" : "the config"} twin`,
+        onclick: async () => { try { reveal((await api.find(twin)).node.id); } catch { toast("No twin in the loaded models", "err"); } },
+      }, twin.includes("/state/") ? "→ state" : "→ config") : null),
+    instHost,
     h("table", { class: "props" }, h("tbody", {}, ...rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v))))),
     n.description ? h("div", { class: "desc" }, n.description) : null,
     d.source ? h("details", { open: true }, h("summary", {}, "YANG source"), h("pre", { class: "src" }, d.source)) : null,
@@ -1083,11 +1091,13 @@ async function doGet(paths = markedPaths()) {
   try {
     const r = await api.get(S.session.id, paths, typeSel.value, encSel.value);
     S.result = r;
+    recordOverlay(paths, r);
     buildData(r.data);
     resultMeta.textContent = `${r.type} · ${r.encoding} · ${r.updateCount} updates · ${r.leafCount} leaves · ${(r.sizeBytes / 1024).toFixed(1)} KiB · ${r.elapsedMs} ms`;
     renderData();
   } catch (e) {
     S.result = null;
+    recordOverlay(paths, null, e);
     resultMeta.className = "err small";
     resultMeta.textContent = errText(e);
     dataHost.replaceChildren();
@@ -1180,4 +1190,133 @@ function showReport() {
       h("div", { class: "report-table" }, h("table", { class: "grid" },
         h("thead", {}, h("tr", {}, h("th", {}, "Status"), h("th", {}, "Module"), h("th", {}, "Advertised"), h("th", {}, "Loaded"))), body))),
     []);
+}
+
+// ---------- data overlay (M3) ----------
+
+// Per session: schema paths (no keys, no prefixes) seen with data, and paths
+// whose Get failed (with the gRPC code). Shown as markers in the tree.
+const overlays = new Map<string, { data: Set<string>; err: Map<string, string>; empty: Set<string> }>();
+
+function overlay() {
+  if (!S.session) return null;
+  let o = overlays.get(S.session.id);
+  if (!o) { o = { data: new Set(), err: new Map(), empty: new Set() }; overlays.set(S.session.id, o); }
+  return o;
+}
+
+// schemaKey reduces a data or schema path to "module|/a/b": element names
+// without keys or module prefixes, plus the module of the first element when the
+// path names one (device data does, as in "/srl_nokia-system:system/..."). The
+// module tells apart same-named top nodes such as ietf, openconfig and vendor
+// "system".
+function schemaKey(p: string): string {
+  const out: string[] = [];
+  let depth = 0, cur = "";
+  for (const ch of p) {
+    if (ch === "[") { depth++; continue; }
+    if (ch === "]") { depth--; continue; }
+    if (depth) continue;
+    if (ch === "/") { if (cur) out.push(cur); cur = ""; continue; }
+    cur += ch;
+  }
+  if (cur) out.push(cur);
+  const mod = out[0]?.includes(":") ? out[0].slice(0, out[0].indexOf(":")) : "";
+  return mod + "|/" + out.map((s) => (s.includes(":") ? s.slice(s.indexOf(":") + 1) : s)).join("/");
+}
+
+function parentKey(k: string): string {
+  const [mod, rest] = k.split("|");
+  const i = rest.lastIndexOf("/");
+  return i <= 0 ? "" : `${mod}|${rest.slice(0, i)}`;
+}
+
+function recordOverlay(paths: string[], r: GetResult | null, err?: unknown) {
+  const o = overlay();
+  if (!o) return;
+  if (err) {
+    const code = err instanceof ApiError ? (err.err.grpcCode ?? err.err.code) : "error";
+    for (const p of paths) o.err.set(schemaKey(p), code);
+  } else if (r) {
+    for (const p of paths) { o.err.delete(schemaKey(p)); if (r.empty) o.empty.add(schemaKey(p)); }
+    for (const u of r.flat) {
+      for (let k = schemaKey(u.path); k && !o.data.has(k); k = parentKey(k)) o.data.add(k);
+    }
+  }
+  tree.refresh();
+  searchList.refresh();
+}
+
+function overlayMark(n: SNode): HTMLElement | null {
+  const o = S.session ? overlays.get(S.session.id) : undefined;
+  if (!o) return null;
+  // The node's top module (from its qualified path) and the module-less key both
+  // match: requests the user typed carry no module.
+  const withMod = schemaKey(n.qpath);
+  const bare = "|" + withMod.split("|")[1];
+  const has = (s: Set<string> | Map<string, string>) => s.has(withMod) || s.has(bare);
+  const e = o.err.get(withMod) ?? o.err.get(bare);
+  if (e) return h("span", { class: "ov err", title: `Get failed here: ${e}` }, "●");
+  if (has(o.data)) return h("span", { class: "ov data", title: "The device returned data here" }, "●");
+  if (has(o.empty)) return h("span", { class: "ov empty", title: "Read, but the device returned no data" }, "○");
+  return null;
+}
+
+// ---------- instances view (M3) ----------
+
+// showInstances lists the concrete entries of a list by reading only its key
+// leaves, so it stays light even for large lists.
+async function showInstances(n: SNode, host: HTMLElement) {
+  if (!S.session) { toast("Connect first", "err"); return; }
+  clear(host);
+  host.append(h("p", { class: "muted small" }, "Reading instances…"));
+  const keys = n.keys ?? [];
+  const paths = keys.map((k) => `${n.path}/${k}`);
+  try {
+    const r = await api.get(S.session.id, paths, "all", "");
+    recordOverlay(paths, r);
+    const inst = new Map<string, Record<string, string>>();
+    for (const u of r.flat) {
+      const i = u.path.lastIndexOf("/");
+      const base = u.path.slice(0, i);
+      const key = u.path.slice(i + 1).replace(/^.*:/, "");
+      const rec = inst.get(base) ?? {};
+      rec[key] = typeof u.value === "string" ? u.value : stringify(u.value, 0);
+      inst.set(base, rec);
+    }
+    clear(host);
+    if (!inst.size) { host.append(h("p", { class: "muted small" }, "No instances on the device.")); return; }
+    const filter = h("input", { type: "search", placeholder: `Filter ${inst.size} instances` });
+    const body = h("tbody");
+    const draw = () => {
+      clear(body);
+      const q = filter.value.toLowerCase();
+      for (const [path, rec] of inst) {
+        const label = keys.map((k) => rec[k] ?? "").join(" · ");
+        if (q && !label.toLowerCase().includes(q)) continue;
+        const display = showPrefixes ? path : path.replace(/\/[^/[\]]+:/g, "/");
+        body.append(h("tr", {},
+          h("td", {}, label),
+          h("td", { class: "actions" },
+            h("button", { class: "small", title: "Read this instance", onclick: () => { showTab("Data"); doGet([display]); } }, "Get"),
+            h("button", { class: "small", title: "Add to the paths to read", onclick: () => toggleMark(display, true) }, "Mark"),
+            h("button", { class: "small", title: display, onclick: () => copyText(display, "path") }, "Copy path"))));
+      }
+    };
+    filter.addEventListener("input", draw);
+    draw();
+    append(host, h("div", { class: "row" }, filter),
+      h("table", { class: "grid instances" }, h("thead", {}, h("tr", {}, h("th", {}, keys.join(" · ")), h("th", {}, ""))), body));
+  } catch (e) {
+    recordOverlay(paths, null, e);
+    clear(host);
+    host.append(h("p", { class: "err small" }, errText(e)));
+  }
+}
+
+// twinPath returns the OpenConfig config/state sibling of a path, if any.
+function twinPath(p: string): string | null {
+  if (p.includes("/config/")) return p.replace(/\/config\/(?!.*\/config\/)/, "/state/");
+  if (p.includes("/state/")) return p.replace(/\/state\/(?!.*\/state\/)/, "/config/");
+  return null;
 }

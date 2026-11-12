@@ -47,7 +47,7 @@ func TestFlattenGuessesKeys(t *testing.T) {
 	var got []string
 	v := map[string]any{"neighbor": []any{map[string]any{"peer-address": "192.0.2.1", "id": "x", "state": "up"}}}
 	Flatten("/bgp", v, func(p string, _ any) { got = append(got, p) })
-	if len(got) != 2 || got[0] != "/bgp/neighbor[id=x]/peer-address" {
+	if len(got) != 3 || got[0] != "/bgp/neighbor[id=x]/id" || got[1] != "/bgp/neighbor[id=x]/peer-address" {
 		t.Errorf("got %v", got)
 	}
 }
