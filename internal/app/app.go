@@ -19,6 +19,7 @@ import (
 	"github.com/UniverseDevel/Canopy/internal/live"
 	"github.com/UniverseDevel/Canopy/internal/models"
 	"github.com/UniverseDevel/Canopy/internal/schema"
+	"github.com/UniverseDevel/Canopy/internal/secrets"
 	"github.com/UniverseDevel/Canopy/internal/sshx"
 )
 
@@ -151,12 +152,16 @@ func (s *Service) Connect(ctx context.Context, t Target) (*Session, error) {
 	if t.Username == "" {
 		t.Username = os.Getenv("GNMI_USERNAME")
 	}
+	// Password order: typed, the preset's own variable, the OS keychain, then
+	// GNMI_PASSWORD.
+	if t.Password == "" && preset != nil && preset.PasswordEnv != "" {
+		t.Password = os.Getenv(preset.PasswordEnv)
+	}
+	if t.Password == "" && preset != nil {
+		t.Password, _ = secrets.Get(preset.Name)
+	}
 	if t.Password == "" {
-		env := "GNMI_PASSWORD"
-		if preset != nil && preset.PasswordEnv != "" {
-			env = preset.PasswordEnv
-		}
-		t.Password = os.Getenv(env)
+		t.Password = os.Getenv("GNMI_PASSWORD")
 	}
 	s.Log.Info("connect", "address", t.Address, "preset", t.Preset, "jumps", t.Jumps, "insecure", t.Insecure, "skipVerify", t.SkipVerify)
 	c, caps, err := conn.Dial(ctx, t.Options())

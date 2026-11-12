@@ -6,9 +6,12 @@ import (
 	"strings"
 
 	"github.com/UniverseDevel/Canopy/internal/app"
+	"github.com/UniverseDevel/Canopy/internal/apperr"
 	"github.com/UniverseDevel/Canopy/internal/connections"
 	"github.com/UniverseDevel/Canopy/internal/format"
+	"github.com/UniverseDevel/Canopy/internal/secrets"
 	"github.com/spf13/cobra"
+	"os"
 )
 
 func (g *globals) presets() *connections.Store { return connections.Open("") }
@@ -26,7 +29,10 @@ Your presets live in the user config folder ('canopy conn path'). Extra read-onl
 files can be added with CANOPY_CONNECTIONS (separated like PATH), for example the
 lab presets in lab/connections.yaml.`,
 	}
-	c.AddCommand(newConnListCmd(g), newConnShowCmd(g), newConnSaveCmd(g), newConnRmCmd(g), newConnPathCmd(g))
+	c.AddCommand(newConnListCmd(g), newConnShowCmd(g), newConnSaveCmd(g), newConnRmCmd(g), newConnPathCmd(g), &cobra.Command{
+		Use: "forget-password NAME", Short: "Remove a stored password from the OS keychain", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error { return secrets.Delete(args[0]) },
+	})
 	return c
 }
 
@@ -88,6 +94,7 @@ func newConnShowCmd(g *globals) *cobra.Command {
 func newConnSaveCmd(g *globals) *cobra.Command {
 	var f targetFlags
 	var desc, enc, pwEnv, modelSet string
+	var remember bool
 	var tags, yangDirs, paths []string
 	cmd := &cobra.Command{
 		Use:   "save NAME",
@@ -142,6 +149,18 @@ flags given now replace its values, others are kept.`,
 			if fl.Changed("path") {
 				c.Paths = paths
 			}
+			if remember {
+				pw := os.Getenv("GNMI_PASSWORD")
+				if pw == "" && g.interactive() {
+					pw, _ = g.prompt("Password to remember: ", true)
+				}
+				if pw == "" {
+					return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "--remember-password needs GNMI_PASSWORD or a prompt")
+				}
+				if err := secrets.Set(name, pw); err != nil {
+					return err
+				}
+			}
 			if err := store.Put(c); err != nil {
 				return err
 			}
@@ -162,6 +181,7 @@ flags given now replace its values, others are kept.`,
 	cmd.Flags().StringVar(&pwEnv, "password-env", "", "environment variable holding this device's password (default GNMI_PASSWORD)")
 	cmd.Flags().StringSliceVarP(&yangDirs, "yang", "y", nil, "YANG folders for this device")
 	cmd.Flags().StringVar(&modelSet, "models", "", "model set from GitHub, SOURCE@VERSION (default: detect from the device)")
+	cmd.Flags().BoolVar(&remember, "remember-password", false, "store the password (GNMI_PASSWORD or prompt) in the OS keychain")
 	cmd.Flags().StringSliceVarP(&paths, "path", "p", nil, "favourite paths (used by 'get' when no --path is given)")
 	return cmd
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/UniverseDevel/Canopy/internal/app"
 	"github.com/UniverseDevel/Canopy/internal/apperr"
+	"github.com/UniverseDevel/Canopy/internal/secrets"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -114,6 +115,16 @@ func (g *globals) target(f *targetFlags, needPassword bool) (app.Target, error) 
 		return t, nil
 	}
 	t.Password = os.Getenv(passwordEnv)
+	if t.Password == "" && f.preset != "" && passwordEnv != "GNMI_PASSWORD" {
+		t.Password = os.Getenv("GNMI_PASSWORD")
+	}
+	if f.preset != "" {
+		// The keychain comes before the generic GNMI_PASSWORD (but after the
+		// preset's own variable).
+		if pw, ok := secrets.Get(t.Preset); ok && (passwordEnv == "GNMI_PASSWORD" || os.Getenv(passwordEnv) == "") {
+			t.Password = pw
+		}
+	}
 	if t.Username == "" && g.interactive() {
 		u, err := g.prompt("Username: ", false)
 		if err != nil {
