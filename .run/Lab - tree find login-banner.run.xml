@@ -1,0 +1,14 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Lab - tree find login-banner" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="Canopy" />
+    <working_directory value="$PROJECT_DIR$" />
+    <parameters value="tree --yang lab/models/srlinux-v26.7.1/srlinux-yang-models --find login-banner" />
+    <kind value="PACKAGE" />
+    <package value="github.com/UniverseDevel/Canopy/cmd/canopy" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$/cmd/canopy/main.go" />
+    <output_directory value="$PROJECT_DIR$/bin" />
+    <method v="2">
+    </method>
+  </configuration>
+</component>

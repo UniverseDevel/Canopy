@@ -1,0 +1,6 @@
+module ex-base {
+  namespace "urn:example:base";
+  prefix exb;
+  revision 2025-01-01;
+  container old { leaf x { type string; } }
+}

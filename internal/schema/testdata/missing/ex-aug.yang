@@ -1,0 +1,9 @@
+module ex-aug {
+  namespace "urn:example:aug";
+  prefix exa;
+  import ex-base { prefix exb; }
+  revision 2026-02-01;
+  augment "/exb:interface" {
+    leaf description { type string; }
+  }
+}

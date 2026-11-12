@@ -12,3 +12,7 @@ lab/.*.clab.yml.bak
 
 # IDE
 .idea/
+web/node_modules/
+
+# Downloaded YANG models for local testing
+lab/models/
