@@ -1,0 +1,6 @@
+module ex-broken {
+  namespace "urn:example:broken";
+  prefix exbr;
+  import nope { prefix n; }
+  container broken { leaf x { type string; } }
+}

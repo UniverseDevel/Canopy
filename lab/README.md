@@ -45,11 +45,8 @@ file permissions on a Windows drive). WSL stops when idle, which stops the node;
 | Encodings | `json_ietf` works for native paths without an origin |
 | Version path | `/system/information/version` returns e.g. `v26.7.1-554-g78ed635f70a` |
 
-YANG models matching the node (needed by the presets and the IDE configurations):
-
-```bash
-mkdir -p lab/models/srlinux-v26.7.1 && curl -sSL https://codeload.github.com/nokia/srlinux-yang-models/tar.gz/refs/tags/v26.7.1 | tar -xz -C lab/models/srlinux-v26.7.1 --strip-components=1
-```
+YANG models: Canopy detects the node's release and downloads the matching set from
+nokia/srlinux-yang-models on first connect (or `canopy models fetch srlinux v26.7.1`).
 
 ## Canopy presets and SSH jump host
 

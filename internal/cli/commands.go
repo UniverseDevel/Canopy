@@ -86,6 +86,8 @@ func newGetCmd(g *globals) *cobra.Command {
 
 func newTreeCmd(g *globals) *cobra.Command {
 	var dirs, modules []string
+	var modelSpec string
+	var search []string
 	var path, find string
 	var depth, limit int
 	cmd := &cobra.Command{
@@ -93,11 +95,19 @@ func newTreeCmd(g *globals) *cobra.Command {
 		Short: "Load YANG models from folders and print the schema tree",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if modelSpec != "" {
+				d, err := g.resolveModels(cmd, modelSpec)
+				if err != nil {
+					return err
+				}
+				dirs = append(dirs, d.Dirs...)
+				search = d.SearchDirs
+			}
 			if len(dirs) == 0 {
-				return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "--yang is required")
+				return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "--yang or --models is required")
 			}
 			svc := g.service()
-			tr, err := svc.LoadSchema(dirs, schema.LoadOptions{Modules: modules})
+			tr, err := svc.LoadSchema(dirs, schema.LoadOptions{Modules: modules, SearchDirs: search})
 			if err != nil {
 				return err
 			}
@@ -162,6 +172,7 @@ func newTreeCmd(g *globals) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringSliceVarP(&dirs, "yang", "y", nil, "folder(s) with .yang files (searched recursively)")
+	cmd.Flags().StringVar(&modelSpec, "models", "", "model set from GitHub, SOURCE@VERSION (e.g. srlinux@v26.7.1, nxos@10.4-3); downloaded once and cached")
 	cmd.Flags().StringSliceVarP(&modules, "module", "m", nil, "only show the tree of these modules (imports are still loaded)")
 	cmd.Flags().StringVarP(&path, "path", "p", "", "print only the subtree at this data path")
 	cmd.Flags().StringVar(&find, "find", "", "search node names (or paths, if the query contains '/')")

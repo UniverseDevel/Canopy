@@ -1,4 +1,4 @@
-import { api, ApiError, GetResult, NodeDetail, Preset, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
+import { api, ApiError, GetResult, modelsApi, ModelSource, NodeDetail, Preset, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
 import { $, append, clear, copyText, h, toast } from "./dom";
 import { Num, stringify } from "./json";
 import { VirtualList } from "./vlist";
@@ -9,7 +9,7 @@ const S = {
   session: null as Session | null, // the active session
   sessions: [] as Session[],
   // per-session working state, restored when switching devices
-  perSession: new Map<string, { paths: string; result: GetResult | null }>(),
+  perSession: new Map<string, { paths: string; result: GetResult | null; models?: ModelChoice }>(),
   presets: [] as Preset[],
   preset: "", // preset currently loaded into the form
   schema: null as SchemaSummary | null,
@@ -43,40 +43,19 @@ function field(label: string, input: HTMLElement, hint?: string) {
   return h("label", { class: "field" }, h("span", {}, label), input, hint ? h("small", {}, hint) : null);
 }
 
-const F = {
-  address: h("input", { placeholder: "host:port, e.g. 127.0.0.1:57400", value: store.get("address") }),
-  tls: h("select", {},
-    h("option", { value: "verify" }, "TLS, verify certificate"),
-    h("option", { value: "skip" }, "TLS, skip verification"),
-    h("option", { value: "plain" }, "Plaintext (insecure)")),
-  ca: h("input", { placeholder: "CA file (optional)", value: store.get("ca") }),
-  serverName: h("input", { placeholder: "server name override (optional)", value: store.get("serverName") }),
-  username: h("input", { placeholder: "username", value: store.get("username"), autocomplete: "username" }),
-  password: h("input", { type: "password", placeholder: "password (kept in memory only)", autocomplete: "current-password" }),
-  jumps: h("input", { placeholder: "user@jump1:22, jump2 (optional)", value: store.get("jumps") }),
-  identity: h("input", { placeholder: "key file (optional; agent and ~/.ssh keys are tried)", value: store.get("identity") }),
-  timeout: h("input", { type: "number", min: "1", value: store.get("timeout") || "10" }),
-};
-F.tls.value = store.get("tls") || "skip";
-
-const connectBtn = h("button", { class: "primary", onclick: () => connect() }, "Connect");
-const disconnectBtn = h("button", { onclick: () => S.session && disconnect(S.session.id), disabled: true }, "Disconnect");
-const connStatus = h("div", { class: "conn-status" }, "Not connected");
-
-const presetSel = h("select", { title: "Saved connections" }, h("option", { value: "" }, "— new connection —"));
-const presetSave = h("button", { onclick: () => savePreset() }, "Save as…");
-const presetDel = h("button", { onclick: () => deletePreset(), disabled: true }, "Delete");
-const presetInfo = h("div", { class: "muted small preset-info" });
-const sessionsBar = h("div", { class: "sessions" });
-
-const connPanel = h("section", { class: "conn-panel" },
-  h("div", { class: "row" }, h("strong", {}, "Saved"), presetSel, presetSave, presetDel, presetInfo),
-  h("div", { class: "conn-grid" },
-    field("Target", F.address), field("Security", F.tls), field("CA file", F.ca), field("TLS server name", F.serverName),
-    field("Username", F.username), field("Password", F.password), field("SSH jump hosts", F.jumps, "comma-separated chain"),
-    field("SSH key file", F.identity), field("Timeout (s)", F.timeout)),
-  h("div", { class: "conn-actions" }, connectBtn, disconnectBtn, connStatus),
-  sessionsBar);
+const deviceList = h("div", { class: "devices" });
+// Full-height device column on the far left, like vertical tabs.
+const devicePanel = h("aside", { class: "device-panel" },
+  h("div", { class: "brand-row" }, h("div", { class: "brand" }, "Canopy"), h("div", { class: "muted small", id: "build" })),
+  h("button", { class: "primary connect-new", onclick: () => openDeviceDialog() }, "+ Connect device"),
+  h("div", { class: "muted small section-label" }, "Devices"),
+  deviceList);
+const activeLabel = h("div", { class: "muted small active-label" }, "No device connected");
+let modelSources: ModelSource[] = [];
+const modelSrcSel = h("select", { title: "Model source" }, h("option", { value: "" }, "Model source…"));
+const modelVerSel = h("select", { title: "Version" }, h("option", { value: "" }, "version"));
+const modelLoadBtn = h("button", { class: "small", onclick: () => loadModelSet() }, "Load");
+const modelStatus = h("div", { class: "muted small model-status" });
 
 const yangInput = h("input", { placeholder: "YANG folder(s), separated by ;", value: store.get("yang") });
 const loadBtn = h("button", { onclick: () => loadSchema() }, "Load");
@@ -160,7 +139,12 @@ function showTab(t: Tab) {
 // ---------- layout: resizable panes, collapsible connection form ----------
 
 const leftPane = h("section", { class: "pane left" },
-  h("div", { class: "row" }, yangInput, loadBtn), schemaInfo, searchInput, treeHost);
+  h("div", { class: "models-panel" },
+    h("div", { class: "row" }, h("strong", {}, "Models"), modelSrcSel, modelVerSel, modelLoadBtn),
+    modelStatus,
+    h("details", { class: "local-models" }, h("summary", { class: "muted small" }, "Local folder instead"),
+      h("div", { class: "row" }, yangInput, loadBtn))),
+  schemaInfo, searchInput, treeHost);
 const centerPane = h("section", { class: "pane center" }, details);
 const rightPane = h("section", { class: "pane right" }, tabBar, ...tabs.map((t) => tabBodies[t]));
 const splitL = h("div", { class: "split", title: "Drag to resize" });
@@ -196,20 +180,14 @@ function setupSplitters() {
   apply();
 }
 
-const connToggle = h("button", { class: "small", onclick: () => setConnCollapsed(!connPanel.classList.contains("collapsed")) }, "Hide connection form");
-function setConnCollapsed(c: boolean) {
-  connPanel.classList.toggle("collapsed", c);
-  connToggle.textContent = c ? "Show connection form" : "Hide connection form";
-}
-
 function mount() {
   const app = $("#app");
   append(app,
-    h("header", {}, h("div", { class: "brand" }, "Canopy"), h("div", { class: "muted small", id: "build" }),
-      h("div", { class: "spacer" }), connToggle),
-    connPanel,
-    mainEl,
-    footer);
+    devicePanel,
+    h("div", { class: "workspace" },
+      h("header", {}, activeLabel),
+      mainEl,
+      footer));
   setupSplitters();
   showTab("Data");
   renderViewSel();
@@ -219,20 +197,14 @@ function mount() {
     searchTimer = window.setTimeout(() => search(searchInput.value), 200);
   });
   pathsArea.addEventListener("input", () => tree.refresh());
-  for (const el of [F.address, F.password, F.username]) {
-    el.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") connect(); });
-  }
   yangInput.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") loadSchema(); });
   api.info().then((i) => ($("#build").textContent = `${i.build.version} ${i.build.commit.slice(0, 8)}`)).catch(() => {});
   api.schema().then((s) => { if (s) schemaLoaded(s); }).catch(() => {});
-  presetSel.addEventListener("change", () => applyPreset(presetSel.value));
-  // Editing the address detaches the form from the preset.
-  F.address.addEventListener("input", () => {
-    if (S.preset) { S.preset = ""; presetSel.value = ""; showPresetInfo(); }
-  });
-  loadPresets();
+  initModels();
+  loadDevices();
   renderFooter();
 }
+
 
 // ---------- modal ----------
 
@@ -250,146 +222,398 @@ function modal(title: string, body: HTMLElement, buttons: { label: string; prima
   });
 }
 
-// ---------- connection ----------
+// ---------- devices ----------
 
-function target(): Target {
-  const tls = F.tls.value;
-  const jumps = F.jumps.value.split(",").map((s) => s.trim()).filter(Boolean);
+// A device in the left list: a saved preset (key "p:name") or one added in this
+// browser session (key "a:n"). Passwords stay in memory only.
+interface Device {
+  key: string;
+  name: string;
+  preset?: Preset;
+  target: Target;
+  models?: string;
+  yangDirs?: string[];
+  paths?: string[];
+  description?: string;
+  session?: Session;
+  state: "off" | "busy" | "on" | "err";
+  error?: string;
+  password?: string;
+}
+const devices: Device[] = [];
+let selectedKey = "";
+let adhocSeq = 0;
+
+function presetTarget(p: Preset): Target {
   return {
-    address: F.address.value.trim(),
-    insecure: tls === "plain",
-    skipVerify: tls === "skip",
-    caFile: tls === "verify" ? F.ca.value.trim() || undefined : undefined,
-    serverName: tls !== "plain" ? F.serverName.value.trim() || undefined : undefined,
-    username: F.username.value.trim() || undefined,
-    password: F.password.value || undefined,
-    timeoutSec: Number(F.timeout.value) || 10,
-    jumps: jumps.length ? jumps : undefined,
-    identityFiles: F.identity.value.trim() ? [F.identity.value.trim()] : undefined,
-    preset: S.preset || undefined,
+    address: p.address, insecure: p.insecure, skipVerify: p.skipVerify, caFile: p.caFile, serverName: p.serverName,
+    username: p.username, timeoutSec: p.timeoutSec, jumps: p.jumps, identityFiles: p.identityFiles, preset: p.name,
   };
 }
 
-// ---------- saved connections ----------
-
-async function loadPresets(select?: string) {
+async function loadDevices() {
   try {
     S.presets = await api.presets();
   } catch (e) {
-    presetInfo.textContent = errText(e);
+    toast(errText(e), "err");
     return;
   }
-  clear(presetSel);
-  presetSel.append(h("option", { value: "" }, "— new connection —"),
-    ...S.presets.map((p) => h("option", { value: p.name }, p.name + (p.readOnly ? "  (lab/team)" : ""))));
-  presetSel.value = select ?? S.preset;
-  showPresetInfo();
+  const old = new Map(devices.map((d) => [d.key, d]));
+  const next: Device[] = [];
+  for (const p of S.presets) {
+    const key = "p:" + p.name;
+    const d = old.get(key) ?? { key, name: p.name, target: presetTarget(p), state: "off" as const };
+    Object.assign(d, { name: p.name, preset: p, target: presetTarget(p), models: p.models, yangDirs: p.yangDirs, paths: p.paths, description: p.description });
+    next.push(d);
+  }
+  for (const d of devices) if (d.key.startsWith("a:")) next.push(d);
+  // keep devices that are still connected even if their preset was deleted
+  for (const d of devices) if (d.session && !next.includes(d)) next.push(d);
+  devices.splice(0, devices.length, ...next);
+  renderDevices();
 }
 
-function showPresetInfo() {
-  const p = S.presets.find((x) => x.name === S.preset);
-  presetDel.disabled = !p || !!p.readOnly;
-  clear(presetInfo);
-  if (!p) return;
-  const parts = [p.description ?? ""];
-  if (p.tags?.length) parts.push(p.tags.join(", "));
-  if (p.lastSeen) parts.push(`last connected ${new Date(p.lastSeen.time).toLocaleString()} (${p.lastSeen.models} models, gNMI ${p.lastSeen.gnmiVersion})`);
-  if (p.readOnly) parts.push(`read-only, from ${p.source}`);
-  if (p.passwordEnv) parts.push(`password from $${p.passwordEnv}`);
-  presetInfo.textContent = parts.filter(Boolean).join(" · ");
-  presetInfo.title = p.source ?? "";
+function renderDevices() {
+  clear(deviceList);
+  if (!devices.length) {
+    deviceList.append(h("p", { class: "muted small pad" }, "No devices yet. Use + Connect device."));
+  }
+  for (const d of devices) {
+    const on = d.state === "on";
+    const btn = h("button", {
+      class: "small" + (on ? "" : " primary"), disabled: d.state === "busy",
+      onclick: (e: Event) => { e.stopPropagation(); on ? disconnectDevice(d) : connectDevice(d); },
+    }, d.state === "busy" ? "…" : on ? "Disconnect" : "Connect");
+    const edit = h("button", {
+      class: "small icon", title: d.preset?.readOnly ? "Copy into a new device" : "Edit",
+      onclick: (e: Event) => { e.stopPropagation(); openDeviceDialog(d); },
+    }, "✎");
+    const sub = d.target.address + (d.target.jumps?.length ? ` via ${d.target.jumps.join(", ")}` : "");
+    const row = h("div", { class: "device" + (d.key === selectedKey ? " sel" : "") + (on ? " on" : "") },
+      h("span", { class: "dot " + d.state, title: { off: "not connected", busy: "connecting", on: "connected", err: "error" }[d.state] }),
+      h("div", { class: "dev-main" },
+        h("div", { class: "dev-name" }, d.name, d.preset?.readOnly ? h("span", { class: "tag" }, "lab/team") : null,
+          !d.preset ? h("span", { class: "tag" }, "not saved") : null),
+        h("div", { class: "muted small dev-sub" }, sub),
+        d.state === "err" && d.error ? h("div", { class: "err small dev-sub", title: d.error }, d.error) : null),
+      edit, btn);
+    row.title = [d.description, d.preset?.lastSeen ? `last connected ${new Date(d.preset.lastSeen.time).toLocaleString()}` : ""].filter(Boolean).join("\n");
+    row.addEventListener("click", () => selectDevice(d));
+    row.addEventListener("dblclick", () => { if (d.state === "off" || d.state === "err") connectDevice(d); });
+    deviceList.append(row);
+  }
 }
 
-// applyPreset fills the form from a saved connection.
-function applyPreset(name: string) {
-  S.preset = name;
-  const p = S.presets.find((x) => x.name === name);
-  showPresetInfo();
-  if (!p) return;
-  F.address.value = p.address;
-  F.tls.value = p.insecure ? "plain" : p.skipVerify ? "skip" : "verify";
-  F.ca.value = p.caFile ?? "";
-  F.serverName.value = p.serverName ?? "";
-  F.username.value = p.username ?? "";
-  F.password.value = "";
-  F.jumps.value = (p.jumps ?? []).join(", ");
-  F.identity.value = (p.identityFiles ?? [])[0] ?? "";
-  F.timeout.value = String(p.timeoutSec || 10);
-  if (p.yangDirs?.length) yangInput.value = p.yangDirs.join("; ");
+async function selectDevice(d: Device) {
+  selectedKey = d.key;
+  renderDevices();
+  if (d.session && S.session?.id !== d.session.id) await activate(d.session.id);
 }
 
-async function savePreset() {
-  const t = target();
-  if (!t.address) { toast("Enter a target address first", "err"); return; }
-  const existing = S.presets.find((x) => x.name === S.preset && !x.readOnly);
-  const name = h("input", { value: existing?.name ?? "", placeholder: "name, e.g. lab-leaf1" });
-  const desc = h("input", { value: existing?.description ?? "", placeholder: "description (optional)" });
-  const tags = h("input", { value: (existing?.tags ?? []).join(", "), placeholder: "tags, comma-separated (optional)" });
-  const pwEnv = h("input", { value: existing?.passwordEnv ?? "", placeholder: "GNMI_PASSWORD" });
-  const withCtx = h("input", { type: "checkbox", checked: true });
-  const body = h("div", { class: "form" },
-    field("Name", name), field("Description", desc), field("Tags", tags),
-    field("Password environment variable", pwEnv, "Passwords are never saved. Leave empty to use GNMI_PASSWORD, or type it in the form."),
-    h("label", { class: "check" }, withCtx, " Also save the YANG folders, marked paths and encoding"));
-  if ((await modal(existing ? `Update “${existing.name}”` : "Save connection", body, [{ label: "Save", primary: true, value: "save" }])) !== "save") return;
-  const p: Preset = {
-    name: name.value.trim(), description: desc.value.trim() || undefined,
-    tags: tags.value.split(",").map((s) => s.trim()).filter(Boolean),
-    address: t.address, insecure: t.insecure, skipVerify: t.skipVerify, caFile: t.caFile, serverName: t.serverName,
-    username: t.username, passwordEnv: pwEnv.value.trim() || undefined, timeoutSec: t.timeoutSec,
-    jumps: t.jumps, identityFiles: t.identityFiles,
+function passwordPrompt(title: string, note: string): Promise<string | null> {
+  const inp = h("input", { type: "password", placeholder: "password", autocomplete: "current-password" });
+  return new Promise((res) => {
+    inp.addEventListener("keydown", (ev: KeyboardEvent) => {
+      if (ev.key === "Enter") { (inp.closest(".modal-back") as HTMLElement).remove(); res(inp.value); }
+    });
+    modal(title, h("div", { class: "form" }, h("p", { class: "muted small" }, note), inp), [{ label: "OK", primary: true, value: "ok" }])
+      .then((r) => res(r === "ok" ? inp.value : null));
+  });
+}
+
+async function connectDevice(d: Device) {
+  d.state = "busy";
+  d.error = "";
+  renderDevices();
+  const t: Target = { ...d.target, password: d.password };
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const s = await api.connect(t);
+        d.session = s;
+        d.state = "on";
+        S.sessions.push(s);
+        selectedKey = d.key;
+        renderDevices();
+        await activate(s.id);
+        if (d.preset && !d.preset.readOnly) loadDevices(); // refresh "last connected"
+        return;
+      } catch (e) {
+        if (!(e instanceof ApiError)) throw e;
+        const x = e.err.details ?? {};
+        if (e.err.code === "host_key_unknown") {
+          const ok = await modal("Unknown SSH host key",
+            h("div", {}, h("p", {}, `The host key of ${x.jumpHost} is not in known_hosts.`),
+              h("pre", { class: "fp" }, `${x.keyType}\n${x.fingerprint}`),
+              h("p", { class: "muted small" }, "Compare it with the fingerprint from the host's administrator. Trusting adds it to known_hosts.")),
+            [{ label: "Trust and connect", primary: true, value: "yes" }]);
+          if (ok !== "yes") throw e;
+          t.acceptHostKeys = [...(t.acceptHostKeys ?? []), x.fingerprint];
+          t.saveHostKeys = true;
+          continue;
+        }
+        if (e.err.code === "passphrase_required") {
+          const v = await passwordPrompt(`Passphrase for ${x.keyFile}`, "The SSH key is protected by a passphrase. It is kept in memory only.");
+          if (v === null) throw e;
+          t.passphrases = { ...(t.passphrases ?? {}), [x.keyFile]: v };
+          continue;
+        }
+        if (e.err.code === "auth_failed") {
+          const v = await passwordPrompt(`Password for ${t.username || "the device"} on ${d.name}`,
+            t.password ? "The password was not accepted. Try again (kept in memory only)." :
+              "No password was set for this device (or the one from the environment was not accepted). It is kept in memory only.");
+          if (v === null) throw e;
+          t.password = v;
+          d.password = v;
+          continue;
+        }
+        throw e;
+      }
+    }
+  } catch (e) {
+    d.state = "err";
+    d.error = errText(e);
+    renderDevices();
+  }
+}
+
+async function disconnectDevice(d: Device) {
+  if (d.session) await disconnect(d.session.id);
+  d.session = undefined;
+  d.state = "off";
+  renderDevices();
+}
+
+// openDeviceDialog adds a device, or edits one (copy for read-only presets).
+async function openDeviceDialog(edit?: Device) {
+  const p = edit?.preset;
+  const t = edit?.target;
+  const v = (x?: string) => x ?? "";
+  const name = h("input", { value: edit ? (p?.readOnly ? `${edit.name}-copy` : edit.name) : "", placeholder: "e.g. leaf1 (optional unless saved)" });
+  const address = h("input", { value: v(t?.address), placeholder: "host:port, e.g. 10.0.0.5:57400" });
+  const tls = h("select", {},
+    h("option", { value: "verify" }, "TLS, verify certificate"),
+    h("option", { value: "skip" }, "TLS, skip verification"),
+    h("option", { value: "plain" }, "Plaintext (insecure)"));
+  tls.value = t ? (t.insecure ? "plain" : t.skipVerify ? "skip" : "verify") : "skip";
+  const ca = h("input", { value: v(t?.caFile), placeholder: "CA file (optional)" });
+  const serverName = h("input", { value: v(t?.serverName), placeholder: "server name override (optional)" });
+  const username = h("input", { value: v(t?.username), placeholder: "username", autocomplete: "username" });
+  const password = h("input", { type: "password", value: v(edit?.password), placeholder: "kept in memory only", autocomplete: "current-password" });
+  const jumps = h("input", { value: (t?.jumps ?? []).join(", "), placeholder: "user@jump1:22, jump2 (optional)" });
+  const identity = h("input", { value: (t?.identityFiles ?? [])[0] ?? "", placeholder: "key file (optional)" });
+  const timeout = h("input", { type: "number", min: "1", value: String(t?.timeoutSec || 10) });
+  const desc = h("input", { value: v(edit?.description), placeholder: "optional" });
+  const [mSrc, mVer] = (edit?.models ?? "").split("@");
+  const modelSrc = h("select", {}, h("option", { value: "" }, "Detect from the device"),
+    ...modelSources.map((s) => h("option", { value: s.id }, s.name)));
+  modelSrc.value = mSrc ?? "";
+  const modelVer = h("select", {}, h("option", { value: "" }, "—"));
+  const fillVersions = async () => {
+    clear(modelVer);
+    if (!modelSrc.value) { modelVer.append(h("option", { value: "" }, "—")); return; }
+    modelVer.append(h("option", { value: "" }, "loading…"));
+    try {
+      const vs = await modelsApi.versions(modelSrc.value);
+      clear(modelVer);
+      modelVer.append(...vs.map((x) => h("option", { value: x.name }, x.name + (x.cached ? "  ✓" : ""))));
+      if (mVer && modelSrc.value === mSrc) modelVer.value = mVer;
+    } catch (e) {
+      clear(modelVer);
+      modelVer.append(h("option", { value: "" }, "listing failed"));
+      toast(errText(e), "err");
+    }
   };
-  if (withCtx.checked) {
-    p.yangDirs = yangInput.value.split(";").map((s) => s.trim()).filter(Boolean);
-    p.paths = markedPaths();
-    p.encoding = encSel.value || undefined;
-  }
-  try {
-    const saved = await api.savePreset(p);
-    S.preset = saved.name;
-    await loadPresets(saved.name);
-    toast(`Saved “${saved.name}”`);
-  } catch (e) {
-    toast(errText(e), "err");
+  modelSrc.addEventListener("change", fillVersions);
+  if (modelSrc.value) fillVersions();
+  const save = h("input", { type: "checkbox", checked: !!p && !p.readOnly });
+  const pwEnv = h("input", { value: v(p?.passwordEnv), placeholder: "GNMI_PASSWORD" });
+  const saveFields = h("div", { class: "form-grid" },
+    field("Description", desc), field("Password environment variable", pwEnv, "Used when no password is typed. Passwords are never saved."));
+  const syncSave = () => { saveFields.hidden = !save.checked; };
+  save.addEventListener("change", syncSave);
+  syncSave();
+  const body = h("div", { class: "form" },
+    h("div", { class: "form-grid" },
+      field("Name", name), field("Target", address), field("Security", tls), field("Timeout (s)", timeout),
+      field("CA file", ca), field("TLS server name", serverName), field("Username", username), field("Password", password),
+      field("SSH jump hosts", jumps, "comma-separated chain"), field("SSH key file", identity),
+      field("YANG models", modelSrc), field("Model version", modelVer)),
+    h("label", { class: "check" }, save, " Save this device (passwords are never saved)"),
+    saveFields);
+  const buttons = [{ label: "Connect", primary: true, value: "connect" }, { label: "Add to list", value: "add" }];
+  const removable = edit && (!edit.preset || !edit.preset.readOnly);
+  if (removable) buttons.push({ label: edit!.preset ? "Delete saved device" : "Remove", value: "remove" });
+  const title = !edit ? "Connect device" : p?.readOnly ? `New device from “${edit.name}”` : `Edit “${edit.name}”`;
+  for (;;) {
+    const r = await modal(title, body, buttons);
+    if (r === null) return;
+    if (r === "remove") {
+      if (edit!.session) await disconnectDevice(edit!);
+      if (edit!.preset) {
+        try { await api.deletePreset(edit!.preset.name); } catch (e) { toast(errText(e), "err"); return; }
+      }
+      devices.splice(devices.indexOf(edit!), 1);
+      await loadDevices();
+      return;
+    }
+    if (!address.value.trim()) { toast("Enter a target address", "err"); continue; }
+    if (save.checked && !name.value.trim()) { toast("A saved device needs a name", "err"); continue; }
+    const jl = jumps.value.split(",").map((s) => s.trim()).filter(Boolean);
+    const tgt: Target = {
+      address: address.value.trim(), insecure: tls.value === "plain", skipVerify: tls.value === "skip",
+      caFile: tls.value === "verify" ? ca.value.trim() || undefined : undefined,
+      serverName: tls.value !== "plain" ? serverName.value.trim() || undefined : undefined,
+      username: username.value.trim() || undefined, timeoutSec: Number(timeout.value) || 10,
+      jumps: jl.length ? jl : undefined, identityFiles: identity.value.trim() ? [identity.value.trim()] : undefined,
+    };
+    const models = modelSrc.value && modelVer.value ? `${modelSrc.value}@${modelVer.value}` : undefined;
+    let d: Device;
+    if (save.checked) {
+      const preset: Preset = {
+        name: name.value.trim(), description: desc.value.trim() || undefined, passwordEnv: pwEnv.value.trim() || undefined,
+        address: tgt.address, insecure: tgt.insecure, skipVerify: tgt.skipVerify, caFile: tgt.caFile, serverName: tgt.serverName,
+        username: tgt.username, timeoutSec: tgt.timeoutSec, jumps: tgt.jumps, identityFiles: tgt.identityFiles,
+        models, paths: edit?.paths, yangDirs: edit?.yangDirs, tags: p?.tags,
+      };
+      try {
+        const saved = await api.savePreset(preset);
+        if (p && !p.readOnly && p.name !== saved.name) await api.deletePreset(p.name).catch(() => {}); // renamed
+        if (edit && !edit.preset) devices.splice(devices.indexOf(edit), 1); // unsaved device became saved
+        await loadDevices();
+        d = devices.find((x) => x.key === "p:" + saved.name)!;
+      } catch (e) {
+        toast(errText(e), "err");
+        continue;
+      }
+    } else if (edit && !edit.preset) {
+      d = edit;
+      Object.assign(d, { name: name.value.trim() || tgt.address, target: tgt, models, description: desc.value.trim() || undefined });
+    } else {
+      d = { key: `a:${++adhocSeq}`, name: name.value.trim() || tgt.address, target: tgt, models, state: "off" };
+      devices.push(d);
+    }
+    if (password.value) d.password = password.value;
+    selectedKey = d.key;
+    renderDevices();
+    if (r === "connect") await connectDevice(d);
+    return;
   }
 }
 
-async function deletePreset() {
-  const p = S.presets.find((x) => x.name === S.preset);
-  if (!p || p.readOnly) return;
-  if ((await modal(`Delete “${p.name}”?`, h("p", {}, "The saved connection is removed. Open sessions stay connected."), [{ label: "Delete", primary: true, value: "del" }])) !== "del") return;
+// ---------- models ----------
+
+
+async function initModels() {
   try {
-    await api.deletePreset(p.name);
-    S.preset = "";
-    await loadPresets("");
+    modelSources = await modelsApi.sources();
+  } catch { return; }
+  modelSrcSel.append(...modelSources.map((s) => h("option", { value: s.id, title: s.description ?? "" }, s.name)));
+  modelSrcSel.addEventListener("change", () => fillModelVersions());
+}
+
+async function fillModelVersions(select?: string) {
+  clear(modelVerSel);
+  if (!modelSrcSel.value) { modelVerSel.append(h("option", { value: "" }, "version")); return; }
+  modelVerSel.append(h("option", { value: "" }, "loading…"));
+  try {
+    const vs = await modelsApi.versions(modelSrcSel.value);
+    clear(modelVerSel);
+    modelVerSel.append(...vs.map((x) => h("option", { value: x.name, title: x.cached ? "downloaded" : "" }, x.name + (x.cached ? "  ✓" : ""))));
+    if (select) modelVerSel.value = select;
   } catch (e) {
-    toast(errText(e), "err");
+    clear(modelVerSel);
+    modelVerSel.append(h("option", { value: "" }, "listing failed"));
+    setModelStatus(errText(e), true);
+  }
+}
+
+function setModelStatus(text: string, err = false) {
+  modelStatus.textContent = text;
+  modelStatus.className = (err ? "err" : "muted") + " small model-status";
+}
+
+type ModelChoice = { kind: "set"; source: string; version: string; note: string } | { kind: "dirs"; dirs: string[] };
+
+async function loadModelSet(src = modelSrcSel.value, ver = modelVerSel.value, note = ""): Promise<boolean> {
+  if (!src || !ver) { toast("Pick a model source and version", "err"); return false; }
+  modelLoadBtn.disabled = true;
+  const name = modelSources.find((s) => s.id === src)?.name ?? src;
+  setModelStatus(`Loading ${name} ${ver} (downloading from GitHub the first time)…`);
+  try {
+    const r = await modelsApi.load(src, ver);
+    if (r.schema) await schemaLoaded(r.schema);
+    setModelStatus(`${name} ${ver}${note ? " · " + note : ""}`);
+    rememberModels({ kind: "set", source: src, version: ver, note });
+    return true;
+  } catch (e) {
+    setModelStatus(errText(e), true);
+    return false;
+  } finally {
+    modelLoadBtn.disabled = false;
+  }
+}
+
+function rememberModels(c: ModelChoice) {
+  if (!S.session) return;
+  const st = S.perSession.get(S.session.id) ?? { paths: pathsArea.value, result: S.result };
+  st.models = c;
+  S.perSession.set(S.session.id, st);
+}
+
+async function selectModelUI(src: string, ver: string) {
+  modelSrcSel.value = src;
+  await fillModelVersions(ver);
+}
+
+// modelsForSession loads the models for the active session: what was used last
+// time, the device's saved folders or model set, or auto-detection.
+async function modelsForSession(s: Session) {
+  const prev = S.perSession.get(s.id)?.models;
+  if (prev?.kind === "set") { await selectModelUI(prev.source, prev.version); await loadModelSet(prev.source, prev.version, prev.note); return; }
+  if (prev?.kind === "dirs") { yangInput.value = prev.dirs.join("; "); await loadSchema(); return; }
+  if (s.yangDirs?.length) { yangInput.value = s.yangDirs.join("; "); await loadSchema(); return; }
+  if (s.models?.includes("@")) {
+    const [src, ver] = s.models.split("@");
+    await selectModelUI(src, ver);
+    await loadModelSet(src, ver, "from the saved device");
+    return;
+  }
+  setModelStatus("Detecting the platform…");
+  try {
+    const r = await modelsApi.auto(s.id);
+    const d = r.detection;
+    if (r.error) { setModelStatus(errText(new ApiError(r.error, 0)), true); return; }
+    if (!d?.source) { setModelStatus(d?.reason ?? "Platform not recognized; pick models below", true); return; }
+    if (!d.version) {
+      await selectModelUI(d.source, "");
+      setModelStatus(`${d.reason}`, true);
+      return;
+    }
+    const note = d.exact ? `detected (device ${d.deviceVersion ?? ""})`.replace(" ()", "") : `nearest to ${d.want} (device ${d.deviceVersion ?? "?"})`;
+    await selectModelUI(d.source, d.version);
+    if (r.schema) await schemaLoaded(r.schema);
+    const name = modelSources.find((x) => x.id === d.source)?.name ?? d.source;
+    setModelStatus(`${name} ${d.version} · ${note}`);
+    rememberModels({ kind: "set", source: d.source, version: d.version, note });
+  } catch (e) {
+    setModelStatus(errText(e), true);
   }
 }
 
 // ---------- sessions ----------
-
-function renderSessions() {
-  clear(sessionsBar);
-  if (!S.sessions.length) return;
-  sessionsBar.append(h("span", { class: "muted small" }, "Open:"));
-  for (const s of S.sessions) {
-    const chip = h("span", { class: "chip" + (S.session?.id === s.id ? " active" : ""), title: `${s.address}${s.hops?.length ? " via " + s.hops.join(" → ") : ""}` },
-      h("span", { class: "dot ok" }), s.label,
-      h("button", { class: "x", title: "Disconnect", onclick: (e: Event) => { e.stopPropagation(); disconnect(s.id); } }, "×"));
-    chip.addEventListener("click", () => activate(s.id));
-    sessionsBar.append(chip);
-  }
-}
 
 // activate makes a session the active one, restoring its paths, result and models.
 async function activate(id: string) {
   const s = S.sessions.find((x) => x.id === id);
   if (!s) return;
   if (S.session && S.session.id !== id) {
-    S.perSession.set(S.session.id, { paths: pathsArea.value, result: S.result });
+    const prev = S.perSession.get(S.session.id);
+    S.perSession.set(S.session.id, { ...prev, paths: pathsArea.value, result: S.result });
   }
   S.session = s;
+  const dev = devices.find((d) => d.session?.id === id);
+  if (dev) { selectedKey = dev.key; renderDevices(); }
   const st = S.perSession.get(id);
   pathsArea.value = st?.paths ?? (s.paths ?? []).join("\n");
   S.result = st?.result ?? null;
@@ -397,82 +621,17 @@ async function activate(id: string) {
   resultMeta.textContent = "";
   renderData();
   connected();
-  if (s.yangDirs?.length) {
-    const want = s.yangDirs.join("; ");
-    if (yangInput.value !== want || !S.schema) {
-      yangInput.value = want;
-      await loadSchema();
-    }
-  }
+  await modelsForSession(s);
   refreshTree();
-}
-
-async function connect() {
-  const t = target();
-  if (!t.address) { toast("Enter a target address", "err"); return; }
-  for (const k of ["address", "ca", "serverName", "username", "jumps", "identity", "timeout"] as const) {
-    store.set(k, (F as any)[k].value);
-  }
-  store.set("tls", F.tls.value);
-  connectBtn.disabled = true;
-  connStatus.className = "conn-status busy";
-  connStatus.textContent = `Connecting to ${t.address}…`;
-  try {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      try {
-        const s = await api.connect(t);
-        S.sessions.push(s);
-        F.password.value = "";
-        await activate(s.id);
-        setConnCollapsed(true); // more room for the tree and data; the header button shows it again
-        if (s.preset) loadPresets(); // refresh "last connected"
-        return;
-      } catch (e) {
-        if (!(e instanceof ApiError)) throw e;
-        const d = e.err.details ?? {};
-        if (e.err.code === "host_key_unknown") {
-          const ok = await modal("Unknown SSH host key",
-            h("div", {}, h("p", {}, `The host key of ${d.jumpHost} is not in known_hosts.`),
-              h("pre", { class: "fp" }, `${d.keyType}\n${d.fingerprint}`),
-              h("p", { class: "muted small" }, "Compare it with the fingerprint from the host's administrator. Trusting adds it to known_hosts.")),
-            [{ label: "Trust and connect", primary: true, value: "yes" }]);
-          if (ok !== "yes") throw e;
-          t.acceptHostKeys = [...(t.acceptHostKeys ?? []), d.fingerprint];
-          t.saveHostKeys = true;
-          continue;
-        }
-        if (e.err.code === "passphrase_required") {
-          const inp = h("input", { type: "password", placeholder: "passphrase" });
-          const v = await new Promise<string | null>((res) => {
-            inp.addEventListener("keydown", (ev: KeyboardEvent) => { if (ev.key === "Enter") { (inp.closest(".modal-back") as HTMLElement).remove(); res(inp.value); } });
-            modal(`Passphrase for ${d.keyFile}`, h("div", {}, inp), [{ label: "Unlock", primary: true, value: "ok" }])
-              .then((r) => res(r === "ok" ? inp.value : null));
-          });
-          if (v === null) throw e;
-          t.passphrases = { ...(t.passphrases ?? {}), [d.keyFile]: v };
-          continue;
-        }
-        throw e;
-      }
-    }
-  } catch (e) {
-    connStatus.className = "conn-status err";
-    connStatus.textContent = errText(e);
-  } finally {
-    connectBtn.disabled = false;
-  }
 }
 
 function connected() {
   const s = S.session!;
-  connStatus.className = "conn-status ok";
-  connStatus.textContent = `Active: ${s.label}${s.label !== s.address ? ` (${s.address})` : ""}${s.hops?.length ? " via " + s.hops.join(" → ") : ""} · gNMI ${s.capabilities.gnmiVersion} · ${s.capabilities.models.length} models · ${s.connectMs} ms`;
-  disconnectBtn.disabled = false;
+  activeLabel.textContent = `${s.label}${s.label !== s.address ? ` (${s.address})` : ""}${s.hops?.length ? " via " + s.hops.join(" → ") : ""} · gNMI ${s.capabilities.gnmiVersion} · ${s.capabilities.models.length} models · ${s.connectMs} ms`;
   clear(encSel);
   encSel.append(h("option", { value: "" }, `encoding: auto (${s.encoding})`),
     ...s.capabilities.encodings.map((e) => h("option", { value: e }, e)));
   renderCaps();
-  renderSessions();
   renderFooter();
 }
 
@@ -480,18 +639,17 @@ async function disconnect(id: string) {
   await api.disconnect(id).catch(() => {});
   S.sessions = S.sessions.filter((x) => x.id !== id);
   S.perSession.delete(id);
+  for (const d of devices) if (d.session?.id === id) { d.session = undefined; d.state = "off"; }
   if (S.session?.id === id) {
     S.session = null;
     const next = S.sessions[S.sessions.length - 1];
     if (next) { await activate(next.id); return; }
     S.result = null;
     renderData();
-    connStatus.className = "conn-status";
-    connStatus.textContent = "Not connected";
-    disconnectBtn.disabled = true;
+    activeLabel.textContent = "No device connected";
     renderCaps();
   }
-  renderSessions();
+  renderDevices();
   renderFooter();
 }
 
@@ -942,7 +1100,11 @@ async function generate() {
     type: typeSel.value, encoding: encSel.value || S.session?.encoding || "",
   };
   if (S.session) req.session = S.session.id;
-  else { const t = target(); delete t.password; req.target = t; }
+  else {
+    const d = devices.find((x) => x.key === selectedKey);
+    if (!d) { toast("Select or connect a device first", "err"); return; }
+    req.target = d.target; // no password: generated commands use $GNMI_PASSWORD
+  }
   clear(genOut);
   try {
     const out = await api.generate(req);

@@ -19,7 +19,7 @@ export class ApiError extends Error {
 export interface Model { name: string; organization?: string; version?: string }
 export interface Capabilities { gnmiVersion: string; encodings: string[]; models: Model[] }
 export interface Session {
-  id: string; label: string; preset?: string; yangDirs?: string[]; paths?: string[];
+  id: string; label: string; preset?: string; yangDirs?: string[]; paths?: string[]; models?: string;
   address: string; jumps?: string[]; hops?: string[];
   capabilities: Capabilities; encoding: string; connectMs: number;
 }
@@ -28,7 +28,7 @@ export interface Preset {
   name: string; description?: string; tags?: string[];
   address: string; insecure?: boolean; skipVerify?: boolean; caFile?: string; certFile?: string; keyFile?: string;
   serverName?: string; username?: string; passwordEnv?: string; timeoutSec?: number;
-  jumps?: string[]; identityFiles?: string[]; encoding?: string; yangDirs?: string[]; paths?: string[];
+  jumps?: string[]; identityFiles?: string[]; encoding?: string; yangDirs?: string[]; paths?: string[]; models?: string;
   lastSeen?: { time: string; gnmiVersion?: string; encodings?: string[]; models: number };
   source?: string; readOnly?: boolean;
 }
@@ -106,4 +106,16 @@ export const api = {
   search: (q: string) => call<SNode[]>("GET", `/api/schema/search?q=${encodeURIComponent(q)}`),
   find: (path: string) => call<{ node: SNode; ancestors: number[] }>("GET", `/api/schema/find?path=${encodeURIComponent(path)}`),
   format: (format: "yaml" | "json", data: unknown) => call<{ text: string }>("POST", "/api/format", { format, data }),
+};
+
+export interface ModelSource { id: string; name: string; repo: string; description?: string }
+export interface ModelVersion { name: string; cached: boolean }
+export interface Detection { source?: string; deviceVersion?: string; want?: string; version?: string; exact: boolean; reason: string }
+export interface ModelResult { detection?: Detection; set?: { source: string; version: string; dirs: string[]; cached: boolean }; schema?: SchemaSummary; error?: AppError }
+
+export const modelsApi = {
+  sources: () => call<ModelSource[]>("GET", "/api/models/sources"),
+  versions: (source: string, refresh = false) => call<ModelVersion[]>("GET", `/api/models/versions?source=${encodeURIComponent(source)}${refresh ? "&refresh=1" : ""}`),
+  load: (source: string, version: string) => call<ModelResult>("POST", "/api/models/load", { source, version }),
+  auto: (session: string) => call<ModelResult>("POST", "/api/models/auto", { session }),
 };

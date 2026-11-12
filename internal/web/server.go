@@ -24,6 +24,7 @@ import (
 	"github.com/UniverseDevel/Canopy/internal/format"
 	"github.com/UniverseDevel/Canopy/internal/generate"
 	"github.com/UniverseDevel/Canopy/internal/live"
+	"github.com/UniverseDevel/Canopy/internal/models"
 	"github.com/UniverseDevel/Canopy/internal/schema"
 )
 
@@ -109,6 +110,10 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("GET /api/connections", s.connList)
 	api.HandleFunc("PUT /api/connections", s.connSave)
 	api.HandleFunc("DELETE /api/connections", s.connDelete)
+	api.HandleFunc("GET /api/models/sources", s.modelSources)
+	api.HandleFunc("GET /api/models/versions", s.modelVersions)
+	api.HandleFunc("POST /api/models/load", s.modelLoad)
+	api.HandleFunc("POST /api/models/auto", s.modelAuto)
 	mux.Handle("/api/", s.guard(api))
 	return s.secure(mux)
 }
@@ -412,4 +417,55 @@ func (s *Server) connDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) modelSources(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, models.Sources)
+}
+
+func (s *Server) modelVersions(w http.ResponseWriter, r *http.Request) {
+	vs, err := s.svc.Models.Versions(r.Context(), r.URL.Query().Get("source"), r.URL.Query().Get("refresh") == "1")
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, vs)
+}
+
+func (s *Server) modelLoad(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Source  string `json:"source"`
+		Version string `json:"version"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	res, err := s.svc.LoadModels(r.Context(), req.Source, req.Version, nil)
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, res)
+}
+
+// modelAuto detects the device's platform and loads the matching model set.
+func (s *Server) modelAuto(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Session string `json:"session"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	res, err := s.svc.AutoModels(r.Context(), req.Session, nil)
+	if err != nil {
+		if res == nil {
+			writeErr(w, err, 0)
+			return
+		}
+		writeJSON(w, map[string]any{"detection": res.Detection, "error": apperr.As(err)})
+		return
+	}
+	writeJSON(w, res)
 }

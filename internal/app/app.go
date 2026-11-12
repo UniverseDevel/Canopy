@@ -17,6 +17,7 @@ import (
 	"github.com/UniverseDevel/Canopy/internal/connections"
 	"github.com/UniverseDevel/Canopy/internal/generate"
 	"github.com/UniverseDevel/Canopy/internal/live"
+	"github.com/UniverseDevel/Canopy/internal/models"
 	"github.com/UniverseDevel/Canopy/internal/schema"
 	"github.com/UniverseDevel/Canopy/internal/sshx"
 )
@@ -89,7 +90,8 @@ type Session struct {
 	Label        string            `json:"label"`            // preset name or address
 	Preset       string            `json:"preset,omitempty"` // saved connection name
 	YangDirs     []string          `json:"yangDirs,omitempty"`
-	Paths        []string          `json:"paths,omitempty"` // saved paths of the preset
+	Paths        []string          `json:"paths,omitempty"`  // saved paths of the preset
+	Models       string            `json:"models,omitempty"` // SOURCE@VERSION from the preset
 	Address      string            `json:"address"`
 	Jumps        []string          `json:"jumps,omitempty"`
 	Hops         []string          `json:"hops,omitempty"`
@@ -106,6 +108,8 @@ type Service struct {
 
 	// Presets are the saved connections.
 	Presets *connections.Store
+	// Models downloads YANG model sets from GitHub.
+	Models *models.Manager
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -119,7 +123,7 @@ func New(log *slog.Logger) *Service {
 		log = slog.New(slog.DiscardHandler)
 	}
 	return &Service{Log: log, sessions: map[string]*Session{}, trees: map[string]*schema.Tree{},
-		Presets: connections.Open("")}
+		Presets: connections.Open(""), Models: models.NewManager()}
 }
 
 // Connect opens a session. Several sessions can be open at once. A missing
@@ -160,6 +164,7 @@ func (s *Service) Connect(ctx context.Context, t Target) (*Session, error) {
 	}
 	if preset != nil {
 		sess.Label, sess.Preset, sess.YangDirs, sess.Paths = preset.Name, preset.Name, preset.YangDirs, preset.Paths
+		sess.Models = preset.Models
 		if preset.Encoding != "" {
 			sess.Encoding = preset.Encoding
 		}
@@ -265,7 +270,7 @@ func (s *Service) Generate(id string, t *Target, r generate.Request) (*generate.
 
 // LoadSchema loads YANG from directories and makes it the current schema.
 func (s *Service) LoadSchema(dirs []string, opt schema.LoadOptions) (*schema.Tree, error) {
-	key := strings.Join(dirs, "\x00") + "\x01" + strings.Join(opt.Modules, "\x00")
+	key := strings.Join(dirs, "\x00") + "\x01" + strings.Join(opt.Modules, "\x00") + "\x01" + strings.Join(opt.SearchDirs, "\x00")
 	s.mu.Lock()
 	if t, ok := s.trees[key]; ok && !opt.Force {
 		s.tree = t
@@ -303,4 +308,70 @@ func newID() string {
 	b := make([]byte, 6)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// ModelResult is the outcome of loading a model set.
+type ModelResult struct {
+	Detection *models.Detection `json:"detection,omitempty"`
+	Set       *models.Set       `json:"set,omitempty"`
+	Schema    *schema.Summary   `json:"schema,omitempty"`
+}
+
+// LoadModels downloads (or reuses) a model set and makes it the current schema.
+func (s *Service) LoadModels(ctx context.Context, source, version string, progress func(string)) (*ModelResult, error) {
+	s.Log.Info("load models", "source", source, "version", version)
+	set, err := s.Models.Fetch(ctx, source, version, progress)
+	if err != nil {
+		return nil, err
+	}
+	t, err := s.LoadSchema(set.Dirs, schema.LoadOptions{SearchDirs: set.SearchDirs})
+	if err != nil {
+		return nil, err
+	}
+	sum := t.Summary()
+	return &ModelResult{Set: set, Schema: &sum}, nil
+}
+
+// DetectModels works out the model source and version for a session.
+func (s *Service) DetectModels(ctx context.Context, id string) (*models.Detection, error) {
+	sess, err := s.Session(id)
+	if err != nil {
+		return nil, err
+	}
+	read := func(ctx context.Context, path string) (string, error) {
+		res, err := live.Get(ctx, sess.conn, live.GetRequest{Paths: []string{path}, Encoding: sess.Encoding})
+		if err != nil {
+			return "", err
+		}
+		for _, u := range res.Flat {
+			if v, ok := u.Value.(string); ok {
+				return v, nil
+			}
+		}
+		return "", apperr.New(apperr.ClassDevice, apperr.CodeNotFound, "no value at %s", path)
+	}
+	d := models.Detect(ctx, sess.Capabilities, read)
+	if err := s.Models.Resolve(ctx, &d); err != nil {
+		d.Reason += "; listing versions failed: " + apperr.As(err).Message
+	}
+	s.Log.Info("models detected", "session", id, "source", d.Source, "deviceVersion", d.DeviceVersion, "version", d.Version, "exact", d.Exact)
+	return &d, nil
+}
+
+// AutoModels detects the model set for a session and loads it when a version is
+// known.
+func (s *Service) AutoModels(ctx context.Context, id string, progress func(string)) (*ModelResult, error) {
+	d, err := s.DetectModels(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if d.Source == "" || d.Version == "" {
+		return &ModelResult{Detection: d}, nil
+	}
+	res, err := s.LoadModels(ctx, d.Source, d.Version, progress)
+	if err != nil {
+		return &ModelResult{Detection: d}, err
+	}
+	res.Detection = d
+	return res, nil
 }

@@ -44,6 +44,9 @@ type Connection struct {
 	Encoding string   `yaml:"encoding,omitempty" json:"encoding,omitempty"`
 	YangDirs []string `yaml:"yangDirs,omitempty" json:"yangDirs,omitempty"`
 	Paths    []string `yaml:"paths,omitempty" json:"paths,omitempty"`
+	// Models is the model set, SOURCE@VERSION (e.g. srlinux@v26.7.1); empty means
+	// detect from the device (unless YangDirs is set).
+	Models string `yaml:"models,omitempty" json:"models,omitempty"`
 
 	// LastSeen is updated after each successful connection.
 	LastSeen *Seen `yaml:"lastSeen,omitempty" json:"lastSeen,omitempty"`

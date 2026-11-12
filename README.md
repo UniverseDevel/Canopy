@@ -7,8 +7,9 @@ it as JSON or YAML, and generate the matching gNMIc commands.
 One Go binary, with a CLI and a local web UI. macOS and Windows are the primary
 platforms; Linux works too. No CGo.
 
-Design and roadmap: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Status: milestone
-M1 (connect and browse).
+Design and roadmap: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Status: M1 (connect
+and browse) done; M2 (model catalog) partly done: models are detected and downloaded from
+GitHub.
 
 ## Build
 
@@ -77,11 +78,47 @@ chain) use the SSH agent (Windows OpenSSH agent pipe, or `SSH_AUTH_SOCK`), keys 
 (`--accept-host-key SHA256:…`, or confirmed at the prompt or in the UI). Key passphrases
 come from `CANOPY_SSH_PASSPHRASE` or a prompt.
 
+### YANG models from GitHub
+
+Canopy downloads the models a device needs: no clone of the large model repositories,
+only the release you use, cached in the user cache folder (`canopy models fetch` prints
+where). In the UI, connecting a device detects its platform and version and loads the
+matching set; the Models picker on the left lists every published version to choose
+from, or takes a local folder instead.
+
+| Source | Repository | Versions | Detected from |
+|---|---|---|---|
+| `srlinux` | nokia/srlinux-yang-models | tags (`v26.7.1`) | `/system/information/version` |
+| `nxos` | YangModels/yang `vendor/cisco/nx` | folders (`10.4-3` = 10.4(3)) | revision of `Cisco-NX-OS-device` in Capabilities |
+| `iosxr`, `iosxe` | YangModels/yang `vendor/cisco/xr`, `xe` | folders | platform only; pick the release |
+| `openconfig` | openconfig/public | tags | any OpenConfig device: newest release |
+
+```bash
+canopy models versions nxos
+```
+
+```bash
+canopy tree --models nxos@10.4-3 --find nxosVersion
+```
+
+```bash
+canopy models detect --conn leaf1 --fetch
+```
+
+Standard IETF modules come from YangModels/yang `standard/ietf/RFC` and are only used to
+resolve imports. A module whose imports can't be found anywhere is skipped and listed as
+a warning, so one broken file doesn't block the rest. Without a token the GitHub API
+allows 60 requests an hour, which is plenty because listings are cached for a day; set
+`GITHUB_TOKEN` if you hit the limit. Without internet access, use `--yang <folder>` or
+the UI's local folder option.
+
 ### Saved connections
 
 Save a device once and use it by name. Several devices can be connected at the same
-time in the UI (the chips under the connection form switch between them; each keeps its
-own paths, data and YANG folders).
+time in the UI: the device column on the left lists saved and added devices, each with
+its own Connect/Disconnect button, and clicking a connected device switches to it (each
+keeps its own paths, data and models). **+ Connect device** opens a dialog with all
+settings and a checkbox to save the device.
 
 ```bash
 canopy conn save leaf1 -a 10.0.0.5:57400 --tls-ca ca.pem -u admin -J admin@jump.example.net --yang ./models/nxos-10.4-3 -p /System/intf-items --password-env LEAF1_PASSWORD
@@ -119,14 +156,14 @@ automatically:
 | Configuration | What it does |
 |---|---|
 | Build canopy | Builds `bin/canopy` and prints the version |
-| Canopy UI | Starts the UI; the lab presets are in the "Saved" list |
+| Canopy UI | Starts the UI; the lab presets are in the Devices list |
 | Canopy UI (rebuild web) | Same, after rebuilding the frontend (needs Node.js and `npm ci` in `web/`) |
 | All tests | `go test ./...` |
 | Web build / watch / check | Frontend build, rebuild on change, type check |
 | Lab - list connections | Lists the lab presets (and your own) |
 | Lab - connect lab-srl1 / -verified / -jump | Connects with each lab preset: TLS skip-verify, TLS verified with the lab CA, through the SSH jump host |
 | Lab - get lab-srl1 | Reads the preset's favourite paths |
-| Lab - tree find login-banner | Schema search in the SR Linux models |
+| Lab - tree find login-banner | Schema search in the SR Linux models (downloaded on first use) |
 
 The UI and Lab configurations pass `--connections lab/connections.yaml`, i.e.
 [`lab/connections.yaml`](lab/connections.yaml), which is exactly what is used for local
@@ -138,13 +175,8 @@ JavaScript plugin (IntelliJ IDEA Ultimate, GoLand, WebStorm).
 ## Local lab
 
 [`lab/README.md`](lab/README.md) describes a Nokia SR Linux node in containerlab (WSL on
-Windows) and network-operator in kind, used for development and QA. The `Canopy UI` and
-`Lab` configurations expect the SR Linux models matching the lab node in
-`lab/models` (not committed):
-
-```bash
-mkdir -p lab/models/srlinux-v26.7.1 && curl -sSL https://codeload.github.com/nokia/srlinux-yang-models/tar.gz/refs/tags/v26.7.1 | tar -xz -C lab/models/srlinux-v26.7.1 --strip-components=1
-```
+Windows) and network-operator in kind, used for development and QA. Its models are
+downloaded automatically on first connect.
 
 ## Testing on other devices
 

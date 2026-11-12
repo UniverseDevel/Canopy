@@ -2,7 +2,7 @@
   <configuration default="false" name="Lab - tree find login-banner" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="Canopy" />
     <working_directory value="$PROJECT_DIR$" />
-    <parameters value="tree --yang lab/models/srlinux-v26.7.1/srlinux-yang-models --find login-banner" />
+    <parameters value="tree --models srlinux@v26.7.1 --find login-banner" />
     <envs>
       <env name="GNMI_PASSWORD" value="NokiaSrl1!" />
     </envs>

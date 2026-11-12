@@ -107,6 +107,9 @@ type LoadOptions struct {
 	Modules []string
 	// Force reloads even if the same folders are cached by the caller.
 	Force bool `json:"force,omitempty"`
+	// SearchDirs are only used to find imported modules (for example a folder
+	// with all IETF RFC modules); their other modules aren't loaded.
+	SearchDirs []string `json:"searchDirs,omitempty"`
 }
 
 // Load reads every .yang file under the given directories (recursively). When a
@@ -159,33 +162,94 @@ func Load(dirs []string, opt LoadOptions) (*Tree, error) {
 		return nil, apperr.New(apperr.ClassSchema, apperr.CodeSchema, "no .yang files found in %s", strings.Join(dirs, ", "))
 	}
 
-	ms := yang.NewModules()
-	ms.ParseOptions.IgnoreSubmoduleCircularDependencies = true
-	ms.AddPath(searchDirs...)
+	// Search-only folders resolve imports but aren't loaded as a whole.
+	for _, root := range opt.SearchDirs {
+		filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() && !seenDir[p] {
+				seenDir[p] = true
+				searchDirs = append(searchDirs, p)
+			}
+			return nil
+		})
+	}
 	names := make([]string, 0, len(best))
 	for n := range best {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+
+	// Load; modules whose imports can't be found (directly or through another
+	// module) are skipped with a warning, so one broken module doesn't block the
+	// rest. Only when nothing is left is it an error.
+	skip := map[string]bool{}
+	var skippedNote []string
+	var ms *yang.Modules
 	var warnings []string
-	for _, n := range names {
-		if err := ms.Read(best[n].file); err != nil {
-			// A broken file shouldn't stop the rest; it is reported.
-			warnings = append(warnings, err.Error())
+	for round := 0; ; round++ {
+		ms = yang.NewModules()
+		ms.ParseOptions.IgnoreSubmoduleCircularDependencies = true
+		ms.AddPath(searchDirs...)
+		warnings = nil
+		loaded := 0
+		for _, n := range names {
+			if skip[n] {
+				continue
+			}
+			if err := ms.Read(best[n].file); err != nil {
+				warnings = append(warnings, err.Error()) // a broken file doesn't stop the rest
+				continue
+			}
+			loaded++
 		}
-	}
-	if errs := ms.Process(); len(errs) > 0 {
-		missing := missingImports(ms, errs)
-		if len(missing) > 0 {
+		errs := ms.Process()
+		missing := missingNames(errs)
+		if len(missing) == 0 {
+			for _, e := range errs {
+				warnings = append(warnings, e.Error())
+			}
+			break
+		}
+		described := missingImports(ms, errs)
+		affected := dependents(ms, missing)
+		// Map module names to our file keys (a file name doesn't have to match the
+		// module name, e.g. cisco-nx-openconfig-macsec-deviations.yang).
+		keyOfFile := map[string]string{}
+		for _, n := range names {
+			keyOfFile[filepath.Clean(best[n].file)] = n
+		}
+		keyOf := func(m *yang.Module) string {
+			src := yang.Source(m)
+			if i := strings.LastIndex(src, ".yang:"); i >= 0 {
+				src = src[:i+5]
+			}
+			return keyOfFile[filepath.Clean(src)]
+		}
+		newSkipSet := map[string]bool{}
+		for _, group := range []map[string]*yang.Module{ms.Modules, ms.SubModules} {
+			for _, m := range group {
+				if k := keyOf(m); k != "" && affected[m.Name] && !skip[k] {
+					newSkipSet[k] = true
+				}
+			}
+		}
+		var newSkips []string
+		for _, n := range names {
+			if newSkipSet[n] {
+				newSkips = append(newSkips, n)
+			}
+		}
+		if len(newSkips) == 0 || len(newSkips) >= loaded || round >= 4 {
 			return nil, apperr.New(apperr.ClassSchema, apperr.CodeSchema,
-				"missing YANG modules: %s", strings.Join(missing, "; ")).
+				"missing YANG modules: %s", strings.Join(described, "; ")).
 				WithHint("add the missing modules to the YANG folder").
 				WithDetail("errors", joinErrs(errs, 20))
 		}
-		for _, e := range errs {
-			warnings = append(warnings, e.Error())
+		for _, n := range newSkips {
+			skip[n] = true
 		}
+		skippedNote = append(skippedNote, fmt.Sprintf("skipped %s: missing %s", strings.Join(newSkips, ", "), strings.Join(described, "; ")))
 	}
+	warnings = append(skippedNote, warnings...)
 
 	t := &Tree{Dir: strings.Join(dirs, string(os.PathListSeparator)), Files: files}
 	want := map[string]bool{}
@@ -491,6 +555,53 @@ func byValue(e *yang.EnumType) []string {
 	out := make([]string, 0, len(vals))
 	for _, v := range vals {
 		out = append(out, e.Name(v))
+	}
+	return out
+}
+
+// missingNames returns the module names from "no such module" errors.
+func missingNames(errs []error) map[string]bool {
+	out := map[string]bool{}
+	for _, e := range errs {
+		if m := noModule.FindStringSubmatch(e.Error()); m != nil {
+			out[m[2]] = true
+		}
+	}
+	return out
+}
+
+// dependents returns the modules that import or include any of the given
+// modules, directly or through other modules.
+func dependents(ms *yang.Modules, missing map[string]bool) map[string]bool {
+	rev := map[string][]string{}
+	add := func(m *yang.Module) {
+		for _, im := range m.Import {
+			rev[im.Name] = append(rev[im.Name], m.Name)
+		}
+		for _, in := range m.Include {
+			rev[in.Name] = append(rev[in.Name], m.Name)
+		}
+	}
+	for _, m := range ms.Modules {
+		add(m)
+	}
+	for _, m := range ms.SubModules {
+		add(m)
+	}
+	out := map[string]bool{}
+	var queue []string
+	for n := range missing {
+		queue = append(queue, n)
+	}
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		for _, d := range rev[n] {
+			if !out[d] {
+				out[d] = true
+				queue = append(queue, d)
+			}
+		}
 	}
 	return out
 }

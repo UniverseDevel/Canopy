@@ -755,6 +755,16 @@ packages to `pkg/` deliberately.
 
 M1 is useful on its own: it already replaces most ad-hoc `gnmic` exploration.
 
+**Status (2026-11-12):** M1 done. M2 partly done (`internal/models`): `github` sources
+versioned by tags (tarball, SR Linux, OpenConfig) or folders (Trees API plus raw files,
+YangModels/yang NX-OS, IOS XR, IOS XE); listings and model sets cached in the user cache
+folder; shared IETF folders used only to resolve imports; modules with missing imports
+skipped with a warning; platform detection for SR Linux (version path) and NX-OS
+(`Cisco-NX-OS-device` revision), nearest-lower version fallback; UI model picker and
+auto-load on connect. Still open for M2: SQLite catalog with search, submodule
+resolution (Juniper, Huawei, Nokia SR OS), resolver match report, prefetch. Also done
+ahead of plan: saved connections (presets) and several devices connected at once.
+
 ---
 
 ## 11. Questions

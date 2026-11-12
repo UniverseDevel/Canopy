@@ -1,6 +1,8 @@
 package schema
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -93,4 +95,39 @@ func TestFindPathWithKeysAndPrefix(t *testing.T) {
 	if n == nil || n.Name != "in-octets" {
 		t.Fatalf("got %+v", n)
 	}
+}
+
+func TestSkipModuleWithMissingImport(t *testing.T) {
+	tr, err := Load([]string{"testdata/partial"}, LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.FindPath("/system") == nil || tr.FindPath("/broken") != nil {
+		t.Error("expected ex-base loaded and ex-broken skipped")
+	}
+	if len(tr.Warnings) == 0 || !strings.Contains(tr.Warnings[0], "skipped ex-broken: missing nope") {
+		t.Errorf("warnings %v", tr.Warnings)
+	}
+}
+
+func TestSearchDirsOnlyResolveImports(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "ex-aug.yang"), mustRead(t, "testdata/ok/ex-aug.yang"), 0o644)
+	tr, err := Load([]string{dir}, LoadOptions{SearchDirs: []string{"testdata/ok"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ex-base is found through the search folder (imports are needed for the
+	// augment) but its own tree is not listed as a loaded folder's module.
+	if tr.FindPath("/interface/description") == nil {
+		t.Error("augment from ex-aug missing")
+	}
+}
+
+func mustRead(t *testing.T, p string) []byte {
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
