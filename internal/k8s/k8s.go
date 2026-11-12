@@ -5,6 +5,7 @@ package k8s
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -406,4 +407,57 @@ func (c *Client) WaitPaused(ctx context.Context, kind, ns, name string, paused b
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+// OriginalEndpointAnnotation keeps a Device's endpoint while a proxy is inserted.
+const OriginalEndpointAnnotation = "canopy.ironcore.dev/original-endpoint"
+
+// InsertProxy points a Device at a proxy address, keeping the original endpoint
+// in an annotation. dropTLS removes spec.endpoint.tls while proxied (for a proxy
+// whose certificate the Device's CA doesn't trust).
+func (c *Client) InsertProxy(ctx context.Context, ns, name, address string, dropTLS bool) (string, error) {
+	u, err := c.Device(ctx, ns, name)
+	if err != nil {
+		return "", err
+	}
+	if _, ok := u.GetAnnotations()[OriginalEndpointAnnotation]; ok {
+		return "", apperr.New(apperr.ClassUsage, apperr.CodeUsage, "a proxy is already inserted for %s/%s; remove it first", ns, name)
+	}
+	ep, _, _ := unstructured.NestedMap(u.Object, "spec", "endpoint")
+	orig, _ := json.Marshal(ep)
+	endpoint := map[string]any{"address": address}
+	if dropTLS {
+		endpoint["tls"] = nil
+	}
+	patch := map[string]any{
+		"metadata": map[string]any{"annotations": map[string]any{OriginalEndpointAnnotation: string(orig)}},
+		"spec":     map[string]any{"endpoint": endpoint},
+	}
+	b, _ := json.Marshal(patch)
+	_, err = c.dyn.Resource(deviceGVR).Namespace(ns).Patch(ctx, name, types.MergePatchType, b, metav1.PatchOptions{})
+	return string(orig), k8sErr(err)
+}
+
+// RemoveProxy restores the endpoint saved by InsertProxy.
+func (c *Client) RemoveProxy(ctx context.Context, ns, name string) (string, error) {
+	u, err := c.Device(ctx, ns, name)
+	if err != nil {
+		return "", err
+	}
+	orig, ok := u.GetAnnotations()[OriginalEndpointAnnotation]
+	if !ok {
+		return "", apperr.New(apperr.ClassUsage, apperr.CodeNotFound, "no proxy inserted for %s/%s", ns, name)
+	}
+	var ep map[string]any
+	if err := json.Unmarshal([]byte(orig), &ep); err != nil {
+		return "", apperr.Wrap(apperr.ClassInternal, apperr.CodeInternal, err)
+	}
+	if err := unstructured.SetNestedMap(u.Object, ep, "spec", "endpoint"); err != nil {
+		return "", apperr.Wrap(apperr.ClassInternal, apperr.CodeInternal, err)
+	}
+	ann := u.GetAnnotations()
+	delete(ann, OriginalEndpointAnnotation)
+	u.SetAnnotations(ann)
+	_, err = c.dyn.Resource(deviceGVR).Namespace(ns).Update(ctx, u, metav1.UpdateOptions{})
+	return orig, k8sErr(err)
 }

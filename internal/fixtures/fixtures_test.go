@@ -81,3 +81,24 @@ func TestKeyedPathMapping(t *testing.T) {
 		t.Errorf("leaves %+v", leaves)
 	}
 }
+
+func TestExportRoundTrip(t *testing.T) {
+	cr := []byte("apiVersion: networking.metal.ironcore.dev/v1alpha1\nkind: Banner\nmetadata:\n  name: motd\nspec:\n  deviceRef: {name: device}\n  message: {inline: hi}\n")
+	b, err := Export("Banner from lab", cr, map[string]any{"a": 1}, map[string]any{"a": 1, "b": "hi"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := write(t, "x.txtar", string(b))
+	fs, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := fs[0]
+	if f.Title != "Banner from lab" || f.CR("Banner") == nil || f.Expect == nil || f.Delete != nil {
+		t.Errorf("round trip %+v\n%s", f, b)
+	}
+	applied, _ := f.Touched()
+	if len(applied) != 1 || applied[0].Path != "/b" {
+		t.Errorf("touched %+v", applied)
+	}
+}

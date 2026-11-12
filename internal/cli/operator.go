@@ -41,6 +41,7 @@ Secrets; add --jump when device addresses are only routable from the cluster), a
 verifies that a resource's intent is on the device.`,
 	}
 	c.AddCommand(newOpDevicesCmd(g), newOpResourcesCmd(g), newOpConnectCmd(g), newOpPauseCmd(g, true), newOpPauseCmd(g, false), newOpVerifyCmd(g))
+	c.AddCommand(newOpProxyCmds(g)...)
 	return c
 }
 

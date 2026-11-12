@@ -186,3 +186,21 @@ can finish its cleanup): `kubectl delete banner canopy-qa-banner`, then
 `kubectl delete -f lab/operator/shadow1-qa.yaml`.
 
 `lab.sh kubeconfig` writes `lab/.kube/config` for Canopy on Windows.
+
+## Recording what the operator sends
+
+`canopy proxy` sits between the operator and a device, forwards every gRPC call and
+records it (gNMI messages decoded). With the dry-run setup above:
+
+```bash
+wsl -d Ubuntu -- ./bin/canopy-linux proxy --tls --listen 172.18.0.1:57600 --upstream 172.18.0.1:57500 --upstream-skip-verify --http 172.18.0.1:57680 --record /tmp/operator.jsonl
+```
+
+```bash
+bin/canopy operator insert-proxy shadow1 --address 172.18.0.1:57600 --kubeconfig lab/.kube/config
+```
+
+Change a resource, then read the Sets (`curl 'http://172.18.0.1:57680/v1/records?method=Set'`
+inside WSL). `canopy operator remove-proxy shadow1` restores the endpoint. For a
+Device that verifies TLS with a CA, serve a certificate from that CA
+(`--tls-cert/--tls-key`) or use `insert-proxy --drop-tls`.

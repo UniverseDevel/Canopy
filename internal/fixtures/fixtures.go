@@ -262,3 +262,37 @@ func Expected(f *Fixture, kind string, liveSpec map[string]any) ([]Leaf, []strin
 	}
 	return out, gone, nil
 }
+
+// Export writes a fixture in network-operator's .txtar layout: the resource
+// YAML (section "<kind plural>/<name>"), and state/preload, state/expect and
+// state/delete as JSON trees (any may be nil).
+func Export(title string, crYAML []byte, preload, expect, del any) ([]byte, error) {
+	var cr map[string]any
+	if err := yaml.Unmarshal(crYAML, &cr); err != nil || cr == nil {
+		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "resource YAML: %v", err)
+	}
+	kind, _ := cr["kind"].(string)
+	meta, _ := cr["metadata"].(map[string]any)
+	name, _ := meta["name"].(string)
+	if kind == "" || name == "" {
+		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "the resource needs kind and metadata.name")
+	}
+	a := &txtar.Archive{Comment: []byte("# " + title + "\n")}
+	a.Files = append(a.Files, txtar.File{Name: strings.ToLower(kind) + "s/" + name, Data: append(bytesTrim(crYAML), '\n', '\n')})
+	for _, s := range []struct {
+		name string
+		v    any
+	}{{"state/preload", preload}, {"state/expect", expect}, {"state/delete", del}} {
+		if s.v == nil {
+			continue
+		}
+		b, err := json.MarshalIndent(s.v, "", "  ")
+		if err != nil {
+			return nil, apperr.Wrap(apperr.ClassInternal, apperr.CodeInternal, err)
+		}
+		a.Files = append(a.Files, txtar.File{Name: s.name, Data: append(append([]byte("\n"), b...), '\n', '\n')})
+	}
+	return txtar.Format(a), nil
+}
+
+func bytesTrim(b []byte) []byte { return []byte(strings.TrimSpace(string(b))) }
