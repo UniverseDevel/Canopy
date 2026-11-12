@@ -46,6 +46,13 @@ type Target struct {
 	// Preset is the saved connection this target came from, if any. Its
 	// passwordEnv, encoding and YANG folders apply, and its lastSeen is updated.
 	Preset string `json:"preset,omitempty"`
+
+	// Set server-side only (operator mode): CA and client certificate from
+	// Kubernetes Secrets, and the label shown for the session.
+	CAPEM   []byte `json:"-"`
+	CertPEM []byte `json:"-"`
+	KeyPEM  []byte `json:"-"`
+	Label   string `json:"-"`
 }
 
 // TargetFrom converts a preset into a target (without secrets).
@@ -72,6 +79,7 @@ func (t Target) Options() conn.Options {
 	o := conn.Options{
 		Address: t.Address, Insecure: t.Insecure, SkipVerify: t.SkipVerify,
 		CAFile: t.CAFile, CertFile: t.CertFile, KeyFile: t.KeyFile, ServerName: t.ServerName,
+		CAPEM: t.CAPEM, CertPEM: t.CertPEM, KeyPEM: t.KeyPEM,
 		Username: t.Username, Password: t.Password,
 		Timeout: time.Duration(t.TimeoutSec) * time.Second,
 	}
@@ -92,6 +100,7 @@ type Session struct {
 	YangDirs     []string          `json:"yangDirs,omitempty"`
 	Paths        []string          `json:"paths,omitempty"`  // saved paths of the preset
 	Models       string            `json:"models,omitempty"` // SOURCE@VERSION from the preset
+	Device       *DeviceRef        `json:"device,omitempty"` // set when connected through the operator
 	Address      string            `json:"address"`
 	Jumps        []string          `json:"jumps,omitempty"`
 	Hops         []string          `json:"hops,omitempty"`
@@ -158,7 +167,7 @@ func (s *Service) Connect(ctx context.Context, t Target) (*Session, error) {
 	}
 	cp := conn.ConvertCapabilities(caps)
 	sess := &Session{
-		ID: newID(), Label: t.Address, Address: t.Address, Jumps: t.Jumps, Capabilities: cp,
+		ID: newID(), Label: firstNonEmpty(t.Label, t.Address), Address: t.Address, Jumps: t.Jumps, Capabilities: cp,
 		Encoding: conn.PreferredEncoding(cp, ""), ConnectMs: time.Since(start).Milliseconds(),
 		Opened: time.Now(), conn: c,
 	}
@@ -388,4 +397,13 @@ func (s *Service) MatchReport(id string) (*models.MatchReport, error) {
 	}
 	r := models.Report(sess.Capabilities, t.Modules)
 	return &r, nil
+}
+
+func firstNonEmpty(s ...string) string {
+	for _, x := range s {
+		if x != "" {
+			return x
+		}
+	}
+	return ""
 }

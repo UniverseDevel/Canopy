@@ -6,6 +6,7 @@ package shadow
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -19,6 +20,7 @@ import (
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -34,6 +36,8 @@ type Server struct {
 	Username, Password string
 	// Log of Set requests received (for "what did the client send?").
 	sets []SetRecord
+	// TLS, when set, serves gNMI over TLS (see SelfSigned).
+	TLS *tls.Config
 }
 
 type leaf struct {
@@ -68,7 +72,11 @@ func (s *Server) Serve(ctx context.Context, addr string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	g := grpc.NewServer()
+	var opts []grpc.ServerOption
+	if s.TLS != nil {
+		opts = append(opts, grpc.Creds(credentials.NewTLS(s.TLS)))
+	}
+	g := grpc.NewServer(opts...)
 	gpb.RegisterGNMIServer(g, s)
 	go func() { <-ctx.Done(); g.Stop() }()
 	go g.Serve(ln)
@@ -108,7 +116,7 @@ func (s *Server) Get(ctx context.Context, r *gpb.GetRequest) (*gpb.GetResponse, 
 	if err := s.auth(ctx); err != nil {
 		return nil, err
 	}
-	n, err := s.read(r.GetPrefix(), r.GetPath())
+	n, err := s.read(r.GetPrefix(), r.GetPath(), r.GetEncoding())
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +140,7 @@ func (s *Server) Subscribe(stream gpb.GNMI_SubscribeServer) error {
 	for _, sub := range sl.GetSubscription() {
 		paths = append(paths, sub.GetPath())
 	}
-	n, err := s.read(sl.GetPrefix(), paths)
+	n, err := s.read(sl.GetPrefix(), paths, sl.GetEncoding())
 	if err != nil {
 		return err
 	}
@@ -142,7 +150,9 @@ func (s *Server) Subscribe(stream gpb.GNMI_SubscribeServer) error {
 	return stream.Send(&gpb.SubscribeResponse{Response: &gpb.SubscribeResponse_SyncResponse{SyncResponse: true}})
 }
 
-func (s *Server) read(prefix *gpb.Path, paths []*gpb.Path) (*gpb.Notification, error) {
+// read answers in the requested encoding: JSON gives JsonVal (network-operator
+// expects that), anything else JsonIetfVal.
+func (s *Server) read(prefix *gpb.Path, paths []*gpb.Path, enc gpb.Encoding) (*gpb.Notification, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	n := &gpb.Notification{Timestamp: time.Now().UnixNano()}
@@ -163,7 +173,11 @@ func (s *Server) read(prefix *gpb.Path, paths []*gpb.Path) (*gpb.Notification, e
 				continue
 			}
 			b, _ := json.Marshal(l.value)
-			n.Update = append(n.Update, &gpb.Update{Path: lp, Val: &gpb.TypedValue{Value: &gpb.TypedValue_JsonIetfVal{JsonIetfVal: b}}})
+			tv := &gpb.TypedValue{Value: &gpb.TypedValue_JsonIetfVal{JsonIetfVal: b}}
+			if enc == gpb.Encoding_JSON {
+				tv = &gpb.TypedValue{Value: &gpb.TypedValue_JsonVal{JsonVal: b}}
+			}
+			n.Update = append(n.Update, &gpb.Update{Path: lp, Val: tv})
 		}
 	}
 	return n, nil

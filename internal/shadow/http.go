@@ -68,4 +68,3 @@ func writeJSON(w http.ResponseWriter, v any) {
 	enc.SetIndent("", "  ")
 	enc.Encode(v)
 }
-

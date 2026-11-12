@@ -21,3 +21,5 @@ lab/models/
 lab/.tls/
 # Lab SSH key created by lab/operator/lab.sh jumphost
 lab/.ssh/
+# Kind kubeconfig written by lab/operator/lab.sh kubeconfig
+lab/.kube/

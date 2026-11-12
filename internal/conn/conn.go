@@ -24,12 +24,17 @@ import (
 
 // Options describe a gNMI target.
 type Options struct {
-	Address    string        `json:"address"`
-	Insecure   bool          `json:"insecure,omitempty"`   // plaintext, no TLS
-	SkipVerify bool          `json:"skipVerify,omitempty"` // TLS without certificate verification
-	CAFile     string        `json:"caFile,omitempty"`
-	CertFile   string        `json:"certFile,omitempty"`
-	KeyFile    string        `json:"keyFile,omitempty"`
+	Address    string `json:"address"`
+	Insecure   bool   `json:"insecure,omitempty"`   // plaintext, no TLS
+	SkipVerify bool   `json:"skipVerify,omitempty"` // TLS without certificate verification
+	CAFile     string `json:"caFile,omitempty"`
+	CertFile   string `json:"certFile,omitempty"`
+	KeyFile    string `json:"keyFile,omitempty"`
+	// CAPEM, CertPEM and KeyPEM give the CA and client certificate in memory
+	// (for example from Kubernetes Secrets) instead of files.
+	CAPEM      []byte        `json:"-"`
+	CertPEM    []byte        `json:"-"`
+	KeyPEM     []byte        `json:"-"`
 	ServerName string        `json:"serverName,omitempty"`
 	Username   string        `json:"username,omitempty"`
 	Password   string        `json:"-"`
@@ -46,7 +51,7 @@ func (o *Options) Validate() error {
 	if _, _, err := net.SplitHostPort(o.Address); err != nil {
 		return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "target address %q must be host:port", o.Address)
 	}
-	if o.Insecure && (o.SkipVerify || o.CAFile != "" || o.CertFile != "") {
+	if o.Insecure && (o.SkipVerify || o.CAFile != "" || o.CertFile != "" || len(o.CAPEM) > 0) {
 		return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "--insecure (plaintext) can't be combined with TLS options")
 	}
 	if (o.CertFile == "") != (o.KeyFile == "") {
@@ -159,19 +164,30 @@ func tlsConfig(o Options) (*tls.Config, error) {
 		host, _, _ := net.SplitHostPort(o.Address)
 		tc.ServerName = host
 	}
+	caPEM, caName := o.CAPEM, "the CA given"
 	if o.CAFile != "" {
 		pem, err := os.ReadFile(o.CAFile)
 		if err != nil {
 			return nil, apperr.Wrap(apperr.ClassUsage, apperr.CodeUsage, err)
 		}
+		caPEM, caName = pem, o.CAFile
+	}
+	if len(caPEM) > 0 {
 		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "no certificates found in %s", o.CAFile)
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "no certificates found in %s", caName)
 		}
 		tc.RootCAs = pool
 	}
-	if o.CertFile != "" {
+	switch {
+	case o.CertFile != "":
 		cert, err := tls.LoadX509KeyPair(o.CertFile, o.KeyFile)
+		if err != nil {
+			return nil, apperr.Wrap(apperr.ClassUsage, apperr.CodeUsage, err)
+		}
+		tc.Certificates = []tls.Certificate{cert}
+	case len(o.CertPEM) > 0:
+		cert, err := tls.X509KeyPair(o.CertPEM, o.KeyPEM)
 		if err != nil {
 			return nil, apperr.Wrap(apperr.ClassUsage, apperr.CodeUsage, err)
 		}

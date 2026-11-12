@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,7 +21,8 @@ func newShadowCmd(g *globals) *cobra.Command {
 	var f targetFlags
 	var listen, httpAddr, load, snap string
 	var seed []string
-	var auth bool
+	var auth, useTLS bool
+	var caOut string
 	cmd := &cobra.Command{
 		Use:   "shadow",
 		Short: "Run an in-memory gNMI target (shadow of a device) for tests and dry runs",
@@ -92,6 +94,19 @@ Sets: GET/PUT/DELETE /v1/state, GET /v1/leaves, GET /v1/sets.`,
 					return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "%s: %v", load, err)
 				}
 			}
+			if useTLS {
+				host, _, _ := net.SplitHostPort(listen)
+				tc, caPEM, err := shadow.SelfSigned([]string{host, "localhost", "127.0.0.1"})
+				if err != nil {
+					return apperr.Wrap(apperr.ClassInternal, apperr.CodeInternal, err)
+				}
+				sh.TLS = tc
+				if caOut != "" {
+					if err := os.WriteFile(caOut, caPEM, 0o644); err != nil {
+						return apperr.Wrap(apperr.ClassUsage, apperr.CodeUsage, err)
+					}
+				}
+			}
 			c, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 			addr, err := sh.Serve(c, listen)
@@ -107,7 +122,11 @@ Sets: GET/PUT/DELETE /v1/state, GET /v1/leaves, GET /v1/sets.`,
 				info["http"] = "http://" + ha
 			}
 			g.result(cmd, info, func(w io.Writer) {
-				fmt.Fprintf(w, "shadow gNMI target on %s (plaintext), %d leaves\n", addr, len(sh.Leaves()))
+				mode := "plaintext"
+				if useTLS {
+					mode = "TLS, self-signed"
+				}
+				fmt.Fprintf(w, "shadow gNMI target on %s (%s), %d leaves\n", addr, mode, len(sh.Leaves()))
 				if h, ok := info["http"]; ok {
 					fmt.Fprintf(w, "control API: %s/v1/state\n", h)
 				}
@@ -124,5 +143,7 @@ Sets: GET/PUT/DELETE /v1/state, GET /v1/leaves, GET /v1/sets.`,
 	cmd.Flags().StringVar(&snap, "snapshot", "", "snapshot to load as state")
 	cmd.Flags().StringSliceVar(&seed, "seed", nil, "copy the data (config and state) at these paths from the --conn/--target device")
 	cmd.Flags().BoolVar(&auth, "auth", false, "require GNMI_USERNAME/GNMI_PASSWORD from clients")
+	cmd.Flags().BoolVar(&useTLS, "tls", false, "serve TLS with a self-signed certificate (clients without a CA skip verification, as network-operator does)")
+	cmd.Flags().StringVar(&caOut, "tls-ca-out", "", "write the self-signed certificate to this file (use as CA)")
 	return cmd
 }

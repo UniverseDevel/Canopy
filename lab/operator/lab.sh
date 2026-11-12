@@ -13,6 +13,7 @@
 #   device    create the CA secret and Device leaf1 (the SR Linux node) that all Tilt
 #             samples target (after Tilt installed the CRDs)
 #   ca        copy the lab CA to lab/.tls/ca.pem for Canopy (node, up and device do it too)
+#   kubeconfig write the kind cluster's kubeconfig to lab/.kube/config for Canopy (gitignored)
 #   status    show lab, cluster and Device state
 #   down      delete the kind cluster and destroy the SR Linux node
 #   jumphost  (as root: wsl -d Ubuntu -u root -- bash lab/operator/lab.sh jumphost)
@@ -134,6 +135,11 @@ case "${1:-}" in
     cd "$OPERATOR_DIR"
     exec tilt up --context "$CTX" --stream=true --legacy=false
     ;;
+  kubeconfig)
+    mkdir -p "$CANOPY_LAB/.kube"
+    kind get kubeconfig --name "$CLUSTER" > "$CANOPY_LAB/.kube/config"
+    echo "kubeconfig written to lab/.kube/config (context $CTX)"
+    ;;
   ca)
     export_ca
     ;;
@@ -157,7 +163,7 @@ case "${1:-}" in
     jumphost
     ;;
   *)
-    sed -n '2,26p' "$0"
+    sed -n '2,27p' "$0"
     exit 1
     ;;
 esac

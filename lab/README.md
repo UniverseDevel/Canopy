@@ -154,3 +154,33 @@ fits into this workflow unchanged.
 ```bash
 docker run --rm --network host ghcr.io/openconfig/gnmic:latest -a 127.0.0.1:57400 -u admin -p "NokiaSrl1!" --skip-verify capabilities
 ```
+
+## QA dry run against Canopy's shadow target
+
+Verifies what the operator does without touching a real device: a Device points at
+Canopy's in-memory gNMI target, the operator reconciles a resource against it, and
+Canopy checks the result.
+
+```bash
+CGO_ENABLED=0 GOOS=linux go build -o bin/canopy-linux ./cmd/canopy
+```
+
+```bash
+wsl -d Ubuntu -- env GNMI_USERNAME=admin GNMI_PASSWORD=NokiaSrl1! ./bin/canopy-linux shadow --tls --listen 172.18.0.1:57500 --http 172.18.0.1:57580 -a 172.20.20.2:57400 --tls-ca lab/.tls/ca.pem --seed /system/information
+```
+
+```bash
+wsl -d Ubuntu -- kubectl --context kind-network-operator apply -f lab/operator/shadow1-qa.yaml
+```
+
+```bash
+bin/canopy operator verify banner canopy-qa-banner --device shadow1 --kubeconfig lab/.kube/config -J canopy@127.0.0.1:2222 --ssh-identity lab/.ssh/canopy_lab_ed25519
+```
+
+The shadow copies the lab node's Capabilities (the provider sees a real release),
+listens with TLS on the kind network gateway, and logs every Set the operator sends
+(`curl http://172.18.0.1:57580/v1/sets` inside WSL). After deleting the Banner,
+`verify --deleted` checks that the operator removed its leaves. Remove the test
+resources with `kubectl delete -f lab/operator/shadow1-qa.yaml`.
+
+`lab.sh kubeconfig` writes `lab/.kube/config` for Canopy on Windows.

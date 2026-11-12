@@ -1,0 +1,41 @@
+# QA dry run (lab/README.md): Device shadow1 points at Canopy's shadow target running
+# in WSL on the kind network gateway (172.18.0.1 by default; check with
+# 'docker network inspect kind'), plus a Banner to reconcile against it. No real
+# device is changed.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: shadow1-basic-auth
+  namespace: default
+type: kubernetes.io/basic-auth
+stringData:
+  username: admin
+  password: shadow
+---
+apiVersion: networking.metal.ironcore.dev/v1alpha1
+kind: Device
+metadata:
+  name: shadow1
+  namespace: default
+  labels:
+    canopy-qa: "true"
+spec:
+  provider: srlinux.nokia.networking.metal.ironcore.dev
+  endpoint:
+    address: 172.18.0.1:57500
+    secretRef:
+      name: shadow1-basic-auth
+---
+apiVersion: networking.metal.ironcore.dev/v1alpha1
+kind: Banner
+metadata:
+  name: canopy-qa-banner
+  namespace: default
+  labels:
+    canopy-qa: "true"
+spec:
+  deviceRef:
+    name: shadow1
+  type: PreLogin
+  message:
+    inline: "Canopy QA dry run banner"
