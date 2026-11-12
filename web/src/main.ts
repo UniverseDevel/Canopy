@@ -280,10 +280,13 @@ function renderDevices() {
   }
   for (const d of devices) {
     const on = d.state === "on";
+    // Compact icon button with a fixed size, so nothing moves when it changes.
     const btn = h("button", {
-      class: "small act" + (on ? "" : " primary"), disabled: d.state === "busy",
+      class: "act" + (on ? " stop" : d.state === "busy" ? "" : " primary"), disabled: d.state === "busy",
+      title: d.state === "busy" ? "Connecting…" : on ? "Disconnect" : "Connect",
+      "aria-label": d.state === "busy" ? "Connecting" : on ? "Disconnect" : "Connect",
       onclick: (e: Event) => { e.stopPropagation(); on ? disconnectDevice(d) : connectDevice(d); },
-    }, d.state === "busy" ? "Connecting…" : on ? "Disconnect" : "Connect");
+    }, d.state === "busy" ? "⋯" : on ? "■" : "▶");
     const edit = h("button", {
       class: "small icon", title: d.preset?.readOnly ? "Copy into a new device" : "Edit",
       onclick: (e: Event) => { e.stopPropagation(); openDeviceDialog(d); },

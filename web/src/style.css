@@ -196,7 +196,7 @@ button.icon { padding: 1px 6px; }
 .form-grid .field input, .form-grid .field select { width: 100%; }
 
 /* Full-height device column (vertical tabs) + workspace */
-#app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+#app { display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
 .workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .workspace > header { min-height: 34px; }
 .device-panel { max-height: none; margin: 0; height: 100vh; display: flex; flex-direction: column; gap: 8px;
@@ -219,4 +219,8 @@ button.icon { padding: 1px 6px; }
 .device { flex-wrap: nowrap; }
 .device .dev-main { flex: 1 1 0; min-width: 0; }
 .device .dev-name { overflow: hidden; white-space: nowrap; }
-.device button.act { margin-left: auto; width: 92px; text-align: center; padding-left: 0; padding-right: 0; }
+.device button.act, .device button.icon { width: 26px; height: 24px; padding: 0; text-align: center; line-height: 1; flex: none; }
+.device button.icon { margin-left: auto; }
+.device button.act { font-size: 11px; }
+.device button.act.stop { color: var(--err); }
+.device button.act.stop:hover { border-color: var(--err); }
