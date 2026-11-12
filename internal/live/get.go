@@ -102,11 +102,32 @@ func Get(ctx context.Context, c *conn.Conn, r GetRequest) (*Result, error) {
 		return nil, err
 	}
 	start := time.Now()
-	resp, err := c.Client.Get(ctx, req)
-	if err != nil {
-		return nil, apperr.FromDevice(err)
+	// Many devices refuse a Get that mixes origins (native and "openconfig:"
+	// paths); send one Get per origin and merge the results.
+	var groups [][]*gpb.Path
+	idx := map[string]int{}
+	for _, p := range req.Path {
+		i, ok := idx[p.GetOrigin()]
+		if !ok {
+			i = len(groups)
+			idx[p.GetOrigin()] = i
+			groups = append(groups, nil)
+		}
+		groups[i] = append(groups[i], p)
 	}
-	res, err := Convert(resp.GetNotification())
+	var notes []*gpb.Notification
+	size := 0
+	for _, g := range groups {
+		one := proto.Clone(req).(*gpb.GetRequest)
+		one.Path = g
+		resp, err := c.Client.Get(ctx, one)
+		if err != nil {
+			return nil, apperr.FromDevice(err)
+		}
+		notes = append(notes, resp.GetNotification()...)
+		size += proto.Size(resp)
+	}
+	res, err := Convert(notes)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +135,7 @@ func Get(ctx context.Context, c *conn.Conn, r GetRequest) (*Result, error) {
 	res.Type = strings.ToLower(req.Type.String())
 	res.Encoding = conn.EncodingName(req.Encoding)
 	res.ElapsedMs = time.Since(start).Milliseconds()
-	res.SizeBytes = proto.Size(resp)
+	res.SizeBytes = size
 	return res, nil
 }
 

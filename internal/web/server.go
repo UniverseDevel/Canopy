@@ -27,6 +27,7 @@ import (
 	"github.com/UniverseDevel/Canopy/internal/live"
 	"github.com/UniverseDevel/Canopy/internal/models"
 	"github.com/UniverseDevel/Canopy/internal/schema"
+	"github.com/UniverseDevel/Canopy/internal/secrets"
 )
 
 //go:embed dist
@@ -41,6 +42,7 @@ type Server struct {
 	http  *http.Server
 	// OpDefaults fill operator requests that leave fields empty.
 	OpDefaults app.OperatorOptions
+	audit      *audit
 }
 
 // New creates a server listening on addr (which must be a loopback address).
@@ -58,7 +60,7 @@ func New(svc *app.Service, log *slog.Logger, addr string) (*Server, error) {
 	}
 	b := make([]byte, 16)
 	rand.Read(b)
-	s := &Server{svc: svc, log: log, token: hex.EncodeToString(b), ln: ln}
+	s := &Server{svc: svc, log: log, token: hex.EncodeToString(b), ln: ln, audit: newAudit()}
 	s.http = &http.Server{Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
 	return s, nil
 }
@@ -98,6 +100,7 @@ func (s *Server) routes() http.Handler {
 
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/info", s.info)
+	api.HandleFunc("GET /api/audit", s.auditList)
 	api.HandleFunc("POST /api/connect", s.connect)
 	api.HandleFunc("POST /api/disconnect", s.disconnect)
 	api.HandleFunc("GET /api/sessions", s.sessions)
@@ -130,6 +133,11 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("POST /api/operator/resources", s.opResources)
 	api.HandleFunc("POST /api/operator/pause", s.opPause)
 	api.HandleFunc("POST /api/operator/verify", s.opVerify)
+	api.HandleFunc("POST /api/fixtures/list", s.fxList)
+	api.HandleFunc("POST /api/fixtures/read", s.fxRead)
+	api.HandleFunc("POST /api/fixtures/export", s.fxExport)
+	api.HandleFunc("POST /api/fixtures/save", s.fxSave)
+	api.HandleFunc("POST /api/fixtures/run", s.fxRun)
 	mux.Handle("/api/", s.guard(api))
 	return s.secure(mux)
 }
@@ -210,11 +218,14 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err, 0)
 		return
 	}
+	start := time.Now()
 	sess, err := s.svc.Connect(r.Context(), t)
 	if err != nil {
+		s.audit.add(AuditEntry{Device: t.Address, Action: "connect", Summary: t.Address, Error: apperr.As(err).Error(), Ms: time.Since(start).Milliseconds()})
 		writeErr(w, err, 0)
 		return
 	}
+	s.record(sess.ID, "connect", sess.Address, &generate.Request{Mode: "capabilities"}, start, nil)
 	writeJSON(w, sess)
 }
 
@@ -226,6 +237,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err, 0)
 		return
 	}
+	s.record(req.Session, "disconnect", "", nil, time.Now(), nil)
 	s.svc.Disconnect(req.Session)
 	writeJSON(w, map[string]bool{"ok": true})
 }
@@ -237,13 +249,18 @@ func (s *Server) sessions(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Session string `json:"session"`
+		Quiet   bool   `json:"quiet"` // not audited (UI helper reads)
 		live.GetRequest
 	}
 	if err := decode(r, &req); err != nil {
 		writeErr(w, err, 0)
 		return
 	}
+	start := time.Now()
 	res, err := s.svc.Get(r.Context(), req.Session, req.GetRequest)
+	if !req.Quiet {
+		s.record(req.Session, "get", strings.Join(req.Paths, " "), &generate.Request{Mode: "get", Paths: req.Paths, Type: req.Type, Encoding: req.Encoding}, start, err)
+	}
 	if err != nil {
 		writeErr(w, err, 0)
 		return
@@ -410,14 +427,31 @@ func (s *Server) connList(w http.ResponseWriter, _ *http.Request) {
 // connSave saves a preset. Passwords in the request are ignored (the type has no
 // password field).
 func (s *Server) connSave(w http.ResponseWriter, r *http.Request) {
-	var c connections.Connection
-	if err := decode(r, &c); err != nil {
+	var req struct {
+		connections.Connection
+		// Opt-in: store this password in the OS keychain for the preset, or
+		// remove the stored one.
+		Password         string `json:"password,omitempty"`
+		RememberPassword bool   `json:"rememberPassword,omitempty"`
+		ForgetPassword   bool   `json:"forgetPassword,omitempty"`
+	}
+	if err := decode(r, &req); err != nil {
 		writeErr(w, err, 0)
 		return
 	}
+	c := req.Connection
 	if err := s.svc.Presets.Put(c); err != nil {
 		writeErr(w, err, 0)
 		return
+	}
+	switch {
+	case req.RememberPassword && req.Password != "":
+		if err := secrets.Set(c.Name, req.Password); err != nil {
+			writeErr(w, err, 0)
+			return
+		}
+	case req.ForgetPassword:
+		secrets.Delete(c.Name)
 	}
 	saved, err := s.svc.Presets.Get(c.Name)
 	if err != nil {
@@ -505,7 +539,17 @@ func (s *Server) set(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err, 0)
 		return
 	}
+	start := time.Now()
 	out, err := s.svc.Set(r.Context(), req.Session, req.Request, req.SetOptions)
+	if out != nil && (out.Sent || (err != nil && req.Confirm && !req.DryRun)) {
+		var ops []generate.SetOp
+		var sum []string
+		for _, op := range req.Ops {
+			ops = append(ops, generate.SetOp{Op: op.Op, Path: op.Path, Value: string(op.Value)})
+			sum = append(sum, op.Op+" "+op.Path)
+		}
+		s.record(req.Session, "set", strings.Join(sum, ", "), &generate.Request{Mode: "set", SetOps: ops, Encoding: req.Encoding}, start, err)
+	}
 	if err != nil {
 		if out != nil {
 			// Still return the preview and validation alongside the error.
@@ -555,7 +599,9 @@ func (s *Server) snapshotTake(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err, 0)
 		return
 	}
+	start := time.Now()
 	m, err := s.svc.TakeSnapshot(r.Context(), req.Session, live.GetRequest{Paths: req.Paths, Type: req.Type}, req.Name, req.Note)
+	s.record(req.Session, "snapshot", strings.Join(req.Paths, " "), &generate.Request{Mode: "get", Paths: req.Paths, Type: req.Type}, start, err)
 	if err != nil {
 		writeErr(w, err, 0)
 		return

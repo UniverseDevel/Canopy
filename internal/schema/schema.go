@@ -27,7 +27,7 @@ type Node struct {
 	Module      string    `json:"module"`           // module that defines the node (augmenting module for augments)
 	Prefix      string    `json:"prefix,omitempty"` // prefix of Module
 	Path        string    `json:"path"`             // data path, list keys as wildcards
-	QPath       string    `json:"qpath"`            // same, first element module-qualified
+	QPath       string    `json:"qpath"`            // same, module-qualified where the module changes
 	Config      bool      `json:"config"`           // false: state (read-only)
 	Keys        []string  `json:"keys,omitempty"`
 	HasChildren bool      `json:"hasChildren"`
@@ -342,8 +342,10 @@ func (t *Tree) add(e *yang.Entry, parent int, path, qpath, choice string) {
 		}
 	}
 	n.Path = path + "/" + seg
-	if parent < 0 {
-		n.QPath = "/" + n.Module + ":" + seg
+	// Qualified where the module changes (the root, and augmented nodes), as in
+	// JSON_IETF member names.
+	if parent < 0 || t.Nodes[parent].Module != n.Module {
+		n.QPath = qpath + "/" + n.Module + ":" + seg
 	} else {
 		n.QPath = qpath + "/" + seg
 	}

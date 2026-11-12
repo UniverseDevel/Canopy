@@ -256,7 +256,6 @@ func newGenerateCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringVar(&r.StreamMode, "stream-mode", "", "stream mode: sample, on-change, target-defined")
 	cmd.Flags().StringVar(&r.SampleInterval, "sample-interval", "", "sample interval (default 10s)")
 	cmd.Flags().StringVar(&r.Shell, "shell", "bash", "shell syntax: bash or powershell")
-	cmd.Flags().IntVar(&r.LocalPort, "local-port", 0, "local port for the SSH tunnel when jump hosts are used")
 	gen.AddCommand(cmd)
 	return gen
 }

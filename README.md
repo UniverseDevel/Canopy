@@ -64,6 +64,35 @@ canopy ui --yang ./models
 `canopy ui` opens the browser at `http://127.0.0.1:<port>/?token=…`; it only listens on
 the loopback interface and refuses requests without the token.
 
+In the UI:
+
+- **Paths are module-qualified** where the module changes
+  (`/srl_nokia-system:system/...`), so same-named nodes from different modules
+  (`system` from ietf, openconfig and the vendor) stay apart. OpenConfig paths get
+  the `openconfig:` origin. Untick **Qualified** for plain paths. A read that mixes
+  origins is sent as one Get per origin, since devices refuse mixed origins.
+- **Marked only** narrows the tree to the marked paths and what is under them.
+- **Capabilities** is a tab next to the schema tree.
+- Under the data, a **gNMIc command preview** shows the one-line command for the
+  current read (Get, Subscribe once/stream/poll, Capabilities) in bash or
+  PowerShell. With SSH jump hosts the command runs gNMIc on the last jump host:
+  `ssh -J hop1 user@hop2 "gnmic -a device:57400 ..."`. The Configure dialog shows the
+  `gnmic set` command (update, replace, delete) while you edit.
+- The **Console** (bottom right) is an audit log of every connect, read, change,
+  snapshot, pause/resume and fixture run, each with its equivalent command. It is
+  kept by the server and appended to `audit.jsonl` in Canopy's config folder.
+- Sessions live in the server: reloading the page keeps the connections.
+- **Fixtures** builds network-operator test fixtures (`.txtar`) from snapshots and a
+  resource's YAML (or from a resource in the Operator tab), saves them into the
+  provider's `test/gnmi/testdata` folder, and runs them against the operator in the
+  cluster. A run does what the operator's gNMI test does, with a shadow target in
+  place of the device: preload, create a Device and the resources in a new
+  namespace, compare with `state/expect`, delete, compare with `state/delete`, and
+  remove the namespace. The shadow target runs inside Canopy, or use your own
+  (`canopy shadow --tls --http ...`) where the cluster can reach it, for example on
+  the kind network gateway.
+- A saved device can keep its password in the OS keychain (opt-in checkbox).
+
 For scripts and agents, every command takes `--output json` (stable envelope with
 `schemaVersion`, `ok`, `result` or `error`), `--non-interactive`, and
 `--log-level debug --log-file canopy.log`. Exit codes: `0` success, `1` usage,

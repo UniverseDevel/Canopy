@@ -1,10 +1,11 @@
-// Package generate produces gNMIc commands and related snippets from a target and
-// a selection of paths. Secrets are never embedded: commands reference
-// $GNMI_USERNAME and $GNMI_PASSWORD.
+// Package generate produces gNMIc commands from a target and a selection of
+// paths. Every command is a single line. With SSH jump hosts, gNMIc runs on the
+// last jump host through ssh, so nothing has to stay running. Secrets are never
+// embedded: commands reference $GNMI_USERNAME and $GNMI_PASSWORD, which the local
+// shell expands.
 package generate
 
 import (
-	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -19,16 +20,15 @@ type Request struct {
 	Target   conn.Options `json:"target"`
 	Hops     []sshx.Hop   `json:"-"`
 	Paths    []string     `json:"paths"`
-	Mode     string       `json:"mode"`               // get (default), once, stream, poll, capabilities
+	Mode     string       `json:"mode"`               // get (default), once, stream, poll, capabilities, set
 	Type     string       `json:"type,omitempty"`     // get: all, config, state, operational
 	Encoding string       `json:"encoding,omitempty"` // empty: gNMIc default
 	// Stream options
 	StreamMode     string `json:"streamMode,omitempty"`     // sample (default), on-change, target-defined
 	SampleInterval string `json:"sampleInterval,omitempty"` // default 10s
 	Shell          string `json:"shell,omitempty"`          // bash (default) or powershell
-	LocalPort      int    `json:"localPort,omitempty"`      // tunnel port, default 57400+
-	// SetOps are the changes for mode "set" (see GnmicSet).
-	SetOps []SetOp `json:"-"`
+	// SetOps are the changes for mode "set".
+	SetOps []SetOp `json:"ops,omitempty"`
 }
 
 // Command is one generated command.
@@ -42,11 +42,55 @@ type Command struct {
 type Output struct {
 	Shell    string    `json:"shell"`
 	Commands []Command `json:"commands"`
-	// Config is an equivalent gNMIc config file (YAML).
-	Config string `json:"config,omitempty"`
 }
 
-// Gnmic generates the commands.
+// SetOp is one change for mode "set".
+type SetOp struct {
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value string `json:"value,omitempty"` // JSON text
+}
+
+// seg is a piece of a command line: literal text, or the name of an environment
+// variable that the local shell expands.
+type seg struct {
+	text string
+	env  bool
+}
+
+type line struct {
+	segs   []seg
+	shell  string // shell that parses gNMIc's arguments
+	remote bool
+}
+
+func (l *line) lit(parts ...string) {
+	for _, p := range parts {
+		if len(l.segs) > 0 {
+			p = " " + p
+		}
+		if n := len(l.segs); n > 0 && !l.segs[n-1].env {
+			l.segs[n-1].text += p
+		} else {
+			l.segs = append(l.segs, seg{text: p})
+		}
+	}
+}
+
+func (l *line) cred(flag, name string) {
+	switch {
+	case l.remote:
+		// expanded by the local shell, single-quoted for the remote one
+		l.lit(flag, "'")
+		l.segs = append(l.segs, seg{text: name, env: true}, seg{text: "'"})
+	case l.shell == "powershell":
+		l.lit(flag, "$env:"+name)
+	default:
+		l.lit(flag, `"$`+name+`"`)
+	}
+}
+
+// Gnmic generates the command.
 func Gnmic(r Request) (*Output, error) {
 	mode := strings.ToLower(r.Mode)
 	if mode == "" {
@@ -55,10 +99,13 @@ func Gnmic(r Request) (*Output, error) {
 	switch mode {
 	case "get", "once", "stream", "poll", "capabilities", "set":
 	default:
-		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "unknown mode %q (get, once, stream, poll, capabilities)", r.Mode)
+		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "unknown mode %q (get, once, stream, poll, capabilities, set)", r.Mode)
 	}
 	if mode != "capabilities" && mode != "set" && len(r.Paths) == 0 {
 		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "at least one path is required")
+	}
+	if mode == "set" && len(r.SetOps) == 0 {
+		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "no changes given")
 	}
 	shell := strings.ToLower(r.Shell)
 	if shell == "" {
@@ -67,130 +114,186 @@ func Gnmic(r Request) (*Output, error) {
 	if shell != "bash" && shell != "powershell" {
 		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "unknown shell %q (bash, powershell)", r.Shell)
 	}
-	q := quoter(shell)
-	out := &Output{Shell: shell}
-
-	addr := r.Target.Address
-	host, port, _ := net.SplitHostPort(addr)
-	serverName := r.Target.ServerName
-	if len(r.Hops) > 0 {
-		lp := r.LocalPort
-		if lp == 0 {
-			lp, _ = strconv.Atoi(port)
-			if lp < 1024 {
-				lp += 50000
+	// Devices refuse a Get that mixes origins: one gnmic get per origin, chained.
+	if groups := byOrigin(r.Paths); mode == "get" && len(groups) > 1 {
+		var parts []string
+		var note string
+		for _, g := range groups {
+			one := r
+			one.Paths = g
+			o, err := Gnmic(one)
+			if err != nil {
+				return nil, err
 			}
+			parts = append(parts, o.Commands[0].Text)
+			note = o.Commands[0].Note
 		}
-		var jumps []string
-		for _, h := range r.Hops[:len(r.Hops)-1] {
-			jumps = append(jumps, hopString(h))
+		sep := " && "
+		if shell == "powershell" {
+			sep = "; "
 		}
-		last := r.Hops[len(r.Hops)-1]
-		ssh := fmt.Sprintf("ssh -N -L %d:%s ", lp, net.JoinHostPort(host, port))
-		if r.Target.SSH != nil {
-			for _, f := range r.Target.SSH.IdentityFiles {
-				ssh += "-i " + q(f) + " "
-			}
+		if note != "" {
+			note += "; "
 		}
-		if len(jumps) > 0 {
-			ssh += "-J " + strings.Join(jumps, ",") + " "
-		}
-		// -J accepts user@host:port, but the destination needs -p.
-		if last.Port != 0 && last.Port != 22 {
-			ssh += "-p " + strconv.Itoa(last.Port) + " "
-		}
-		dest := last.Host
-		if last.Alias != "" {
-			dest = last.Alias
-		}
-		if last.User != "" {
-			dest = last.User + "@" + dest
-		}
-		ssh += dest
-		out.Commands = append(out.Commands, Command{
-			Title: "Tunnel (keep running in its own terminal)",
-			Text:  ssh,
-			Note:  "forwards 127.0.0.1:" + strconv.Itoa(lp) + " to the target through the jump host(s)",
-		})
-		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(lp))
-		if !r.Target.Insecure && !r.Target.SkipVerify && serverName == "" {
-			serverName = host // certificate is for the real name, not 127.0.0.1
-		}
+		return &Output{Shell: shell, Commands: []Command{{Title: "gNMIc get", Text: strings.Join(parts, sep),
+			Note: note + "one get per origin, since devices refuse a Get that mixes them"}}}, nil
 	}
+	remote := len(r.Hops) > 0
+	l := &line{shell: shell, remote: remote}
+	if remote {
+		l.shell = "bash" // the jump host's shell parses gNMIc's arguments
+	}
+	q := quoter(l.shell)
 
-	var b []string
-	b = append(b, "gnmic", "-a", addr)
-	b = append(b, "-u", envRef(shell, "GNMI_USERNAME"), "-p", envRef(shell, "GNMI_PASSWORD"))
+	l.lit("gnmic", "-a", r.Target.Address)
+	l.cred("-u", "GNMI_USERNAME")
+	l.cred("-p", "GNMI_PASSWORD")
 	switch {
 	case r.Target.Insecure:
-		b = append(b, "--insecure")
+		l.lit("--insecure")
 	case r.Target.SkipVerify:
-		b = append(b, "--skip-verify")
+		l.lit("--skip-verify")
 	}
 	if r.Target.CAFile != "" {
-		b = append(b, "--tls-ca", q(r.Target.CAFile))
+		l.lit("--tls-ca", q(r.Target.CAFile))
 	}
 	if r.Target.CertFile != "" {
-		b = append(b, "--tls-cert", q(r.Target.CertFile), "--tls-key", q(r.Target.KeyFile))
+		l.lit("--tls-cert", q(r.Target.CertFile), "--tls-key", q(r.Target.KeyFile))
 	}
-	if serverName != "" && !r.Target.Insecure {
-		b = append(b, "--tls-server-name", q(serverName))
+	if r.Target.ServerName != "" && !r.Target.Insecure {
+		l.lit("--tls-server-name", q(r.Target.ServerName))
 	}
 	if r.Target.Timeout > 0 {
-		b = append(b, "--timeout", r.Target.Timeout.String())
+		l.lit("--timeout", r.Target.Timeout.String())
 	}
 	if r.Encoding != "" && mode != "capabilities" {
-		b = append(b, "-e", strings.ToLower(r.Encoding))
+		l.lit("-e", strings.ToLower(r.Encoding))
 	} else if mode == "set" {
-		b = append(b, "-e", "json_ietf")
+		l.lit("-e", "json_ietf")
 	}
 	switch mode {
 	case "capabilities":
-		b = append(b, "capabilities")
+		l.lit("capabilities")
 	case "set":
-		b = append(b, "set")
+		l.lit("set")
 		for _, op := range r.SetOps {
 			switch strings.ToLower(op.Op) {
 			case "delete":
-				b = append(b, "--delete", q(op.Path))
+				l.lit("--delete", q(op.Path))
 			case "replace":
-				b = append(b, "--replace-path", q(op.Path), "--replace-value", quoteAlways(shell, op.Value))
+				l.lit("--replace-path", q(op.Path), "--replace-value", quoteAlways(l.shell, op.Value))
 			default:
-				b = append(b, "--update-path", q(op.Path), "--update-value", quoteAlways(shell, op.Value))
+				l.lit("--update-path", q(op.Path), "--update-value", quoteAlways(l.shell, op.Value))
 			}
 		}
 	case "get":
-		b = append(b, "get")
+		l.lit("get")
 		if t := strings.ToLower(r.Type); t != "" && t != "all" {
-			b = append(b, "--type", t)
+			l.lit("--type", t)
 		}
 		for _, p := range r.Paths {
-			b = append(b, "--path", q(p))
+			l.lit("--path", q(p))
 		}
 	default:
-		b = append(b, "subscribe")
+		l.lit("subscribe")
 		for _, p := range r.Paths {
-			b = append(b, "--path", q(p))
+			l.lit("--path", q(p))
 		}
-		b = append(b, "--mode", mode)
+		l.lit("--mode", mode)
 		if mode == "stream" {
 			sm := r.StreamMode
 			if sm == "" {
 				sm = "sample"
 			}
-			b = append(b, "--stream-mode", sm)
+			l.lit("--stream-mode", sm)
 			if sm == "sample" {
 				si := r.SampleInterval
 				if si == "" {
 					si = "10s"
 				}
-				b = append(b, "--sample-interval", si)
+				l.lit("--sample-interval", si)
 			}
 		}
 	}
-	out.Commands = append(out.Commands, Command{Title: "gNMIc " + mode, Text: wrap(shell, b)})
-	out.Config = config(r, mode, addr, serverName)
+	out := &Output{Shell: shell}
+	c := Command{Title: "gNMIc " + mode}
+	if !remote {
+		for _, s := range l.segs {
+			c.Text += s.text
+		}
+		out.Commands = append(out.Commands, c)
+		return out, nil
+	}
+	// ssh [-i key] [-J hop1,...] [-p port] [-t] user@lasthop "gnmic ..."
+	sq := quoter(shell)
+	ssh := []string{"ssh"}
+	if r.Target.SSH != nil {
+		for _, f := range r.Target.SSH.IdentityFiles {
+			ssh = append(ssh, "-i", sq(f))
+		}
+	}
+	var jumps []string
+	for _, h := range r.Hops[:len(r.Hops)-1] {
+		jumps = append(jumps, hopString(h))
+	}
+	if len(jumps) > 0 {
+		ssh = append(ssh, "-J", strings.Join(jumps, ","))
+	}
+	last := r.Hops[len(r.Hops)-1]
+	if last.Port != 0 && last.Port != 22 {
+		ssh = append(ssh, "-p", strconv.Itoa(last.Port))
+	}
+	if mode == "stream" || mode == "poll" {
+		ssh = append(ssh, "-t") // Ctrl+C reaches gNMIc
+	}
+	dest := last.Host
+	if last.Alias != "" {
+		dest = last.Alias
+	}
+	if last.User != "" {
+		dest = last.User + "@" + dest
+	}
+	ssh = append(ssh, dest)
+	c.Text = strings.Join(ssh, " ") + " " + remoteArg(shell, l.segs)
+	host, _, _ := net.SplitHostPort(r.Target.Address)
+	c.Note = "gNMIc runs on " + dest + " (it must be installed there) and connects to " + host + " directly"
+	if r.Target.CAFile != "" || r.Target.CertFile != "" {
+		c.Note += "; the TLS files must exist at these paths on " + dest
+	}
+	out.Commands = append(out.Commands, c)
 	return out, nil
+}
+
+// remoteArg renders the remote command as one argument in which the local shell
+// expands only the credential references.
+func remoteArg(shell string, segs []seg) string {
+	if shell == "powershell" {
+		var parts []string
+		for _, s := range segs {
+			if s.env {
+				parts = append(parts, "$env:"+s.text)
+			} else {
+				parts = append(parts, "'"+strings.ReplaceAll(s.text, "'", "''")+"'")
+			}
+		}
+		return "(" + strings.Join(parts, " + ") + ")"
+	}
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, s := range segs {
+		if s.env {
+			b.WriteString("$" + s.text)
+			continue
+		}
+		for _, ch := range s.text {
+			if strings.ContainsRune("\\\"$`", ch) {
+				b.WriteByte('\\')
+			}
+			b.WriteRune(ch)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func hopString(h sshx.Hop) string {
@@ -207,13 +310,6 @@ func hopString(h sshx.Hop) string {
 	return s
 }
 
-func envRef(shell, name string) string {
-	if shell == "powershell" {
-		return "$env:" + name
-	}
-	return `"$` + name + `"`
-}
-
 // quoter returns a function that quotes an argument when needed.
 func quoter(shell string) func(string) string {
 	var q func(string) string
@@ -224,103 +320,9 @@ func quoter(shell string) func(string) string {
 		if s != "" && !strings.ContainsAny(s, " \t'\"$`*?[]{}()|&;<>!#~\\") {
 			return s
 		}
-		if shell == "powershell" {
-			return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-		}
-		return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+		return quoteAlways(shell, s)
 	}
 	return q
-}
-
-// wrap joins args, breaking lines before flags when the command is long.
-func wrap(shell string, args []string) string {
-	one := strings.Join(args, " ")
-	if len(one) <= 100 {
-		return one
-	}
-	cont := " \\\n  "
-	if shell == "powershell" {
-		cont = " `\n  "
-	}
-	var b strings.Builder
-	lineLen := 0
-	for i, a := range args {
-		if i > 0 {
-			if strings.HasPrefix(a, "-") && lineLen > 40 {
-				b.WriteString(cont)
-				lineLen = 2
-			} else {
-				b.WriteByte(' ')
-				lineLen++
-			}
-		}
-		b.WriteString(a)
-		lineLen += len(a)
-	}
-	return b.String()
-}
-
-// config renders a gNMIc config file equivalent.
-func config(r Request, mode, addr, serverName string) string {
-	var b strings.Builder
-	b.WriteString("# gnmic --config canopy.yaml " + map[bool]string{true: "get", false: "subscribe"}[mode == "get"] + "\n")
-	b.WriteString("# credentials come from the environment: GNMIC_USERNAME, GNMIC_PASSWORD\n")
-	if r.Encoding != "" {
-		fmt.Fprintf(&b, "encoding: %s\n", strings.ToLower(r.Encoding))
-	}
-	b.WriteString("targets:\n")
-	fmt.Fprintf(&b, "  %q:\n", addr)
-	switch {
-	case r.Target.Insecure:
-		b.WriteString("    insecure: true\n")
-	case r.Target.SkipVerify:
-		b.WriteString("    skip-verify: true\n")
-	}
-	if r.Target.CAFile != "" {
-		fmt.Fprintf(&b, "    tls-ca: %q\n", r.Target.CAFile)
-	}
-	if serverName != "" && !r.Target.Insecure {
-		fmt.Fprintf(&b, "    tls-server-name: %q\n", serverName)
-	}
-	if mode == "get" || mode == "capabilities" {
-		if mode == "get" {
-			b.WriteString("get-path:\n")
-			for _, p := range r.Paths {
-				fmt.Fprintf(&b, "  - %q\n", p)
-			}
-			if t := strings.ToLower(r.Type); t != "" && t != "all" {
-				fmt.Fprintf(&b, "get-type: %s\n", t)
-			}
-		}
-		return b.String()
-	}
-	b.WriteString("subscriptions:\n  canopy:\n    paths:\n")
-	for _, p := range r.Paths {
-		fmt.Fprintf(&b, "      - %q\n", p)
-	}
-	fmt.Fprintf(&b, "    mode: %s\n", mode)
-	if mode == "stream" {
-		sm := r.StreamMode
-		if sm == "" {
-			sm = "sample"
-		}
-		fmt.Fprintf(&b, "    stream-mode: %s\n", sm)
-		if sm == "sample" {
-			si := r.SampleInterval
-			if si == "" {
-				si = "10s"
-			}
-			fmt.Fprintf(&b, "    sample-interval: %s\n", si)
-		}
-	}
-	return b.String()
-}
-
-// SetOp is one change for GnmicSet.
-type SetOp struct {
-	Op    string `json:"op"`
-	Path  string `json:"path"`
-	Value string `json:"value,omitempty"` // JSON text
 }
 
 func quoteAlways(shell, s string) string {
@@ -332,14 +334,28 @@ func quoteAlways(shell, s string) string {
 
 // GnmicSet generates the gnmic set command for the changes (values inline).
 func GnmicSet(r Request, ops []SetOp) (*Output, error) {
-	if len(ops) == 0 {
-		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "no changes given")
-	}
 	r.Mode, r.SetOps, r.Paths = "set", ops, nil
-	out, err := Gnmic(r)
-	if err != nil {
-		return nil, err
+	return Gnmic(r)
+}
+
+// byOrigin groups paths by their gNMI origin ("openconfig:/..." vs "/...").
+func byOrigin(paths []string) [][]string {
+	var out [][]string
+	idx := map[string]int{}
+	for _, p := range paths {
+		o := ""
+		if !strings.HasPrefix(p, "/") {
+			if i := strings.Index(p, ":/"); i > 0 && !strings.ContainsAny(p[:i], "/[") {
+				o = p[:i]
+			}
+		}
+		i, ok := idx[o]
+		if !ok {
+			i = len(out)
+			idx[o] = i
+			out = append(out, nil)
+		}
+		out[i] = append(out[i], p)
 	}
-	out.Config = ""
-	return out, nil
+	return out
 }

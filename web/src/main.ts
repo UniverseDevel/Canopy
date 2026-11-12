@@ -2,6 +2,8 @@ import { api, ApiError, GetResult, MatchReport, modelsApi, ModelSource, opApi, O
 import { openConfigDialog } from "./config";
 import { snapshotsTab } from "./snapshots";
 import { operatorTab } from "./operator";
+import { auditConsole } from "./console";
+import { fixturesTab } from "./fixtures";
 import { $, append, clear, copyText, field, h, modal, toast } from "./dom";
 import { Num, stringify } from "./json";
 import { VirtualList } from "./vlist";
@@ -81,13 +83,18 @@ const getBtn = h("button", { class: "primary", onclick: () => doGet() }, "Get");
 const resultMeta = h("div", { class: "muted small" });
 const viewSel = h("div", { class: "seg" });
 const dataHost = h("div", { class: "data-host" });
-let showPrefixes = store.get("prefixes") === "1";
-const prefixChk = h("input", { type: "checkbox", checked: showPrefixes });
-prefixChk.addEventListener("change", () => {
-  showPrefixes = prefixChk.checked;
-  store.set("prefixes", showPrefixes ? "1" : "0");
-  dataList.refresh();
+// Qualified paths name the module where it changes (/srl_nokia-system:system/...),
+// as devices send them; same-named top nodes of different modules stay apart.
+let qualified = store.get("qualified") !== "0";
+const qualChk = h("input", { type: "checkbox", checked: qualified });
+qualChk.addEventListener("change", () => {
+  qualified = qualChk.checked;
+  store.set("qualified", qualified ? "1" : "0");
+  tree.refresh(); searchList.refresh(); dataList.refresh();
+  if (S.selected >= 0) select(S.selected);
 });
+const defaultShell = /win/i.test(navigator.platform) ? "powershell" : "bash";
+function shell(): string { return store.get("shell") || defaultShell; }
 
 function expandData(open: boolean) {
   dataOpen.clear();
@@ -97,44 +104,56 @@ function expandData(open: boolean) {
 }
 let dataView: "tree" | "json" | "yaml" | "flat" = "tree";
 
-const genMode = h("select", {}, ...["get", "once", "stream", "poll", "capabilities"].map((t) => h("option", { value: t }, t)));
-const genShell = h("select", {}, h("option", { value: "bash" }, "bash / zsh"), h("option", { value: "powershell" }, "PowerShell"));
-const genInterval = h("input", { value: "10s", size: 6, title: "sample interval for stream mode" });
-const genOut = h("div", { class: "gen-out" });
+// Command preview: the gNMIc command for what the Data tab reads.
+const cmdMode = h("select", { title: "What the command does" },
+  h("option", { value: "get" }, "Get"), h("option", { value: "once" }, "Subscribe once"),
+  h("option", { value: "stream" }, "Subscribe stream"), h("option", { value: "poll" }, "Subscribe poll"),
+  h("option", { value: "capabilities" }, "Capabilities"));
+const shellSel = h("select", { title: "Shell syntax" }, h("option", { value: "bash" }, "bash / zsh"), h("option", { value: "powershell" }, "PowerShell"));
+shellSel.value = shell();
+const cmdInterval = h("input", { value: "10s", size: 5, title: "Sample interval (stream)" });
+const cmdText = h("code", { class: "cmd-line", title: "Click to copy" });
+const cmdNote = h("div", { class: "muted small cmd-note" });
+const cmdBox = h("div", { class: "cmd-preview" },
+  h("div", { class: "cmd-bar" }, h("span", { class: "cmd-label" }, "gNMIc"), cmdMode, cmdInterval, shellSel,
+    h("span", { class: "grow" }),
+    h("button", { class: "small", onclick: () => cmdText.textContent && copyText(cmdText.textContent, "command") }, "Copy")),
+  cmdText, cmdNote);
+cmdText.addEventListener("click", () => cmdText.textContent && copyText(cmdText.textContent, "command"));
 
 const capsHost = h("div", { class: "caps" }, h("p", { class: "muted" }, "Connect to see capabilities."));
 const footer = h("footer", {});
+const consoleUI = auditConsole({ shell });
 
-const tabs = ["Data", "Commands", "Snapshots", "Operator", "Capabilities"] as const;
-const opTab = operatorTab({ session: () => S.session, options: () => opOptions() });
+const tabs = ["Data", "Snapshots", "Operator", "Fixtures"] as const;
+const fxTab = fixturesTab({ session: () => S.session, options: () => opOptions() });
+const opTab = operatorTab({ session: () => S.session, options: () => opOptions(), toFixture: (r) => { showTab("Fixtures"); fxTab.useResource(r); } });
 const snaps = snapshotsTab({ session: () => S.session, paths: () => markedPaths(), type: () => typeSel.value });
 type Tab = typeof tabs[number];
 const tabBar = h("div", { class: "tabs" });
 const tabBodies: Record<Tab, HTMLElement> = {
-  Data: h("div", { class: "tab-body" },
-    h("div", { class: "get-form" }, pathsArea,
-      h("div", { class: "row" }, typeSel, encSel, getBtn,
-        h("button", { onclick: () => { pathsArea.value = ""; refreshTree(); } }, "Clear paths"))),
-    h("div", { class: "row between" }, viewSel, resultMeta),
-    h("div", { class: "row" },
-      h("button", { class: "small", onclick: () => expandData(true) }, "Expand all"),
-      h("button", { class: "small", onclick: () => expandData(false) }, "Collapse all"),
-      h("label", { class: "check small", title: "Show module prefixes such as srl_nokia-interfaces: in names (display only; copies keep them)" }, prefixChk, "Module prefixes")),
-    h("div", { class: "row" },
-      h("button", { onclick: () => copySelection("json") }, "Copy selection as JSON"),
-      h("button", { onclick: () => copySelection("yaml") }, "Copy selection as YAML"),
-      h("button", { onclick: () => copyAll("json") }, "Copy all JSON"),
-      h("button", { onclick: () => copyAll("yaml") }, "Copy all YAML"),
-      h("button", { onclick: () => { dataSel.clear(); dataList.refresh(); } }, "Clear selection")),
-    dataHost),
-  Commands: h("div", { class: "tab-body" },
-    h("p", { class: "muted small" }, "Commands use the paths from the Data tab and the current connection. Credentials come from $GNMI_USERNAME and $GNMI_PASSWORD; nothing secret is embedded."),
-    h("div", { class: "row" }, field("Mode", genMode), field("Shell", genShell), field("Sample interval", genInterval),
-      h("button", { class: "primary", onclick: () => generate() }, "Generate")),
-    genOut),
+  Data: h("div", { class: "tab-body data-tab" },
+    h("div", { class: "data-top" },
+      h("div", { class: "get-form" }, pathsArea,
+        h("div", { class: "row" }, typeSel, encSel, getBtn,
+          h("button", { onclick: () => { setPaths([]); } }, "Clear paths"))),
+      h("div", { class: "toolbar" }, viewSel,
+        h("span", { class: "tsep" }),
+        h("button", { class: "small", title: "Expand all", onclick: () => expandData(true) }, "Expand"),
+        h("button", { class: "small", title: "Collapse all", onclick: () => expandData(false) }, "Collapse"),
+        h("span", { class: "tsep" }),
+        h("span", { class: "muted small" }, "Copy"),
+        h("button", { class: "small", title: "Copy the ticked data as JSON", onclick: () => copySelection("json") }, "Ticked JSON"),
+        h("button", { class: "small", title: "Copy the ticked data as YAML", onclick: () => copySelection("yaml") }, "Ticked YAML"),
+        h("button", { class: "small", onclick: () => copyAll("json") }, "All JSON"),
+        h("button", { class: "small", onclick: () => copyAll("yaml") }, "All YAML"),
+        h("button", { class: "small", title: "Untick all", onclick: () => { dataSel.clear(); dataList.refresh(); } }, "Untick")),
+      resultMeta,
+      dataHost),
+    cmdBox),
   Snapshots: h("div", { class: "tab-body" }, snaps.el),
   Operator: h("div", { class: "tab-body" }, opTab.el),
-  Capabilities: h("div", { class: "tab-body" }, capsHost),
+  Fixtures: h("div", { class: "tab-body" }, fxTab.el),
 };
 let activeTab: Tab = "Data";
 
@@ -147,17 +166,35 @@ function showTab(t: Tab) {
   for (const x of tabs) tabBodies[x].hidden = x !== t;
   if (t === "Snapshots") snaps.refresh();
   if (t === "Operator") opTab.refresh();
+  if (t === "Fixtures") fxTab.refresh();
+}
+
+// Left pane: the schema tree, or the device's capabilities (device-global).
+const leftTabsDef = ["Schema", "Capabilities"] as const;
+type LeftTab = typeof leftTabsDef[number];
+const leftTabBar = h("div", { class: "tabs" });
+const leftBodies = {} as Record<LeftTab, HTMLElement>;
+function showLeftTab(t: LeftTab) {
+  clear(leftTabBar);
+  for (const x of leftTabsDef) leftTabBar.append(h("button", { class: x === t ? "tab active" : "tab", onclick: () => showLeftTab(x) }, x));
+  for (const x of leftTabsDef) leftBodies[x].hidden = x !== t;
 }
 
 // ---------- layout: resizable panes, collapsible connection form ----------
 
-const leftPane = h("section", { class: "pane left" },
+const markedOnlyBtn = h("button", { class: "small toggle", title: "Show only the marked paths (and what is under them)", onclick: () => setMarkedOnly(!markedOnly) }, "Marked only");
+leftBodies.Schema = h("div", { class: "left-body" },
   h("div", { class: "models-panel" },
     h("div", { class: "row" }, h("strong", {}, "Models"), modelSrcSel, modelVerSel, modelLoadBtn),
     modelStatus, reportLine,
     h("details", { class: "local-models" }, h("summary", { class: "muted small" }, "Local folder instead"),
       h("div", { class: "row" }, yangInput, loadBtn))),
-  schemaInfo, searchInput, treeHost);
+  schemaInfo,
+  h("div", { class: "tree-tools" }, searchInput, markedOnlyBtn,
+    h("label", { class: "check small", title: "Name modules where they change, e.g. /srl_nokia-system:system (OpenConfig paths also get the openconfig: origin). Same-named nodes of different modules stay apart." }, qualChk, "Qualified")),
+  treeHost);
+leftBodies.Capabilities = h("div", { class: "left-body" }, capsHost);
+const leftPane = h("section", { class: "pane left" }, leftTabBar, leftBodies.Schema, leftBodies.Capabilities);
 const centerPane = h("section", { class: "pane center" }, details);
 const rightPane = h("section", { class: "pane right" }, tabBar, ...tabs.map((t) => tabBodies[t]));
 const splitL = h("div", { class: "split", title: "Drag to resize" });
@@ -200,24 +237,29 @@ function mount() {
     h("div", { class: "workspace" },
       h("header", {}, activeLabel),
       mainEl,
+      consoleUI.el,
       footer));
   setupSplitters();
   showTab("Data");
+  showLeftTab("Schema");
   renderViewSel();
   let searchTimer = 0;
   searchInput.addEventListener("input", () => {
     clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => search(searchInput.value), 200);
   });
-  pathsArea.addEventListener("input", () => tree.refresh());
+  pathsArea.addEventListener("input", () => pathsChanged());
+  for (const el of [typeSel, encSel, cmdMode, cmdInterval]) el.addEventListener("change", () => updateCmd());
+  shellSel.addEventListener("change", () => { store.set("shell", shellSel.value); updateCmd(); consoleUI.redraw(); });
   yangInput.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") loadSchema(); });
   api.info().then((i) => ($("#build").textContent = `${i.build.version} ${i.build.commit.slice(0, 8)}`)).catch(() => {});
   api.schema().then((s) => { if (s) schemaLoaded(s); }).catch(() => {});
   initModels();
-  loadDevices();
   opApi.info().then((i) => { opDefaults = i.defaults ?? {}; }).catch(() => {});
-  loadCluster();
+  // Sessions live in the server: after a page reload, pick them up again.
+  Promise.allSettled([loadDevices(), loadCluster()]).then(() => restoreSessions());
   renderFooter();
+  updateCmd();
 }
 
 
@@ -379,6 +421,7 @@ async function clusterSettings() {
 async function selectDevice(d: Device) {
   selectedKey = d.key;
   renderDevices();
+  updateCmd();
   if (d.session && S.session?.id !== d.session.id) await activate(d.session.id);
 }
 
@@ -502,8 +545,13 @@ async function openDeviceDialog(edit?: Device) {
   if (modelSrc.value) fillVersions();
   const save = h("input", { type: "checkbox", checked: !!p && !p.readOnly });
   const pwEnv = h("input", { value: v(p?.passwordEnv), placeholder: "GNMI_PASSWORD" });
-  const saveFields = h("div", { class: "form-grid" },
-    field("Description", desc), field("Password environment variable", pwEnv, "Used when no password is typed. Passwords are never saved."));
+  const keychain = h("input", { type: "checkbox" });
+  const forget = h("input", { type: "checkbox" });
+  const saveFields = h("div", { class: "form" },
+    h("div", { class: "form-grid" },
+      field("Description", desc), field("Password environment variable", pwEnv, "Used when no password is typed.")),
+    h("label", { class: "check" }, keychain, " Remember the typed password in the OS keychain (not in any file)"),
+    p && !p.readOnly ? h("label", { class: "check" }, forget, " Forget the password stored in the keychain") : null);
   const syncSave = () => { saveFields.hidden = !save.checked; };
   save.addEventListener("change", syncSave);
   syncSave();
@@ -513,7 +561,7 @@ async function openDeviceDialog(edit?: Device) {
       field("CA file", ca), field("TLS server name", serverName), field("Username", username), field("Password", password),
       field("SSH jump hosts", jumps, "comma-separated chain"), field("SSH key file", identity),
       field("YANG models", modelSrc), field("Model version", modelVer)),
-    h("label", { class: "check" }, save, " Save this device (passwords are never saved)"),
+    h("label", { class: "check" }, save, " Save this device (passwords never go into the file)"),
     saveFields);
   const buttons = [{ label: "Connect", primary: true, value: "connect" }, { label: "Add to list", value: "add" }];
   const removable = edit && (!edit.preset || !edit.preset.readOnly);
@@ -551,7 +599,9 @@ async function openDeviceDialog(edit?: Device) {
         models, paths: edit?.paths, yangDirs: edit?.yangDirs, tags: p?.tags,
       };
       try {
-        const saved = await api.savePreset(preset);
+        if (keychain.checked && !password.value) { toast("Type the password to remember", "err"); continue; }
+        const saved = await api.savePreset(preset, { password: keychain.checked ? password.value : undefined, rememberPassword: keychain.checked, forgetPassword: forget.checked });
+        if (keychain.checked) toast("Password stored in the OS keychain");
         if (p && !p.readOnly && p.name !== saved.name) await api.deletePreset(p.name).catch(() => {}); // renamed
         if (edit && !edit.preset) devices.splice(devices.indexOf(edit), 1); // unsaved device became saved
         await loadDevices();
@@ -686,16 +736,19 @@ async function activate(id: string) {
     S.perSession.set(S.session.id, { ...prev, paths: pathsArea.value, result: S.result });
   }
   S.session = s;
+  store.set("active", id);
   const dev = devices.find((d) => d.session?.id === id);
   if (dev) { selectedKey = dev.key; renderDevices(); }
   const st = S.perSession.get(id);
-  pathsArea.value = st?.paths ?? (s.paths ?? []).join("\n");
+  pathsArea.value = st?.paths ?? (store.get("paths." + id) || (s.paths ?? []).join("\n"));
   S.result = st?.result ?? null;
   if (S.result) buildData(S.result.data);
   resultMeta.textContent = "";
   renderData();
   connected();
+  updateCmd();
   await modelsForSession(s);
+  if (markedOnly) await computeMarked();
   refreshTree();
 }
 
@@ -725,6 +778,7 @@ async function disconnect(id: string) {
   }
   renderDevices();
   renderFooter();
+  updateCmd();
 }
 
 function renderCaps() {
@@ -757,7 +811,9 @@ function renderFooter() {
     h("span", { class: s ? "dot ok" : "dot" }), s ? `${s.label} · ${S.sessions.length} open` : "not connected",
     h("span", { class: "sep" }),
     S.schema ? `${S.schema.modules.length} modules · ${S.schema.nodes.toLocaleString()} nodes · loaded in ${S.schema.loadMs} ms` : "no models",
-    S.schema?.warnings?.length ? h("button", { class: "link", onclick: () => showWarnings() }, `${S.schema.warnings.length} warnings`) : null);
+    S.schema?.warnings?.length ? h("button", { class: "link", onclick: () => showWarnings() }, `${S.schema.warnings.length} warnings`) : null,
+    h("span", { class: "grow" }),
+    consoleUI.btn);
 }
 
 function showWarnings() {
@@ -802,14 +858,15 @@ async function loadChildren(id: number) {
 
 function visibleRows() {
   const rows: { node: SNode; depth: number }[] = [];
-  const walk = (id: number, depth: number) => {
+  const walk = (id: number, depth: number, inside: boolean) => {
     for (const c of S.children.get(id) ?? []) {
+      if (markedOnly && !inside && !allowedIds.has(c) && !markedIds.has(c)) continue;
       const n = S.nodes.get(c)!;
       rows.push({ node: n, depth });
-      if (S.expanded.has(c)) walk(c, depth + 1);
+      if (S.expanded.has(c)) walk(c, depth + 1, inside || markedIds.has(c));
     }
   };
-  walk(-1, 0);
+  walk(-1, 0, false);
   return rows;
 }
 
@@ -825,12 +882,74 @@ function markedPaths(): string[] {
   return pathsArea.value.split("\n").map((s) => s.trim()).filter(Boolean);
 }
 
+// originFor returns the gNMI origin a qualified path needs: OpenConfig modules
+// live under "openconfig" on most devices (SR Linux, NX-OS, ...).
+function originFor(p: string): string {
+  const m = /^\/([^/:[\]]+):/.exec(p);
+  return m && m[1].startsWith("openconfig-") ? "openconfig:" : "";
+}
+function stripOrigin(p: string): string { return p.startsWith("/") ? p : p.replace(/^[^/[]*:(?=\/)/, ""); }
+function unqualify(p: string): string { return stripOrigin(p).replace(/\/[^/[\]]+:/g, "/"); }
+// pathOf is the path used for a schema node (marks, Get, copy).
+function pathOf(n: SNode): string { return qualified ? originFor(n.qpath) + n.qpath : n.path; }
+// reqPath turns a data path (as the device sent it) into a request path.
+function reqPath(p: string): string { return qualified ? originFor(p) + stripOrigin(p) : unqualify(p); }
+function isMarked(n: SNode): boolean {
+  return markedPaths().some((p) => { const q = stripOrigin(p); return q.includes(":") ? q === n.qpath : q === n.path; });
+}
+
+function setPaths(ps: string[]) {
+  pathsArea.value = ps.join("\n");
+  pathsChanged();
+}
+
+function pathsChanged() {
+  if (S.session) store.set("paths." + S.session.id, pathsArea.value);
+  if (markedOnly) computeMarked().then(refreshTree); else { tree.refresh(); searchList.refresh(); }
+  updateCmd();
+}
+
 function toggleMark(path: string, on: boolean) {
   const ps = markedPaths().filter((p) => p !== path);
   if (on) ps.push(path);
-  pathsArea.value = ps.join("\n");
-  tree.refresh();
-  searchList.refresh();
+  setPaths(ps);
+}
+
+function toggleNode(n: SNode, on: boolean) {
+  const ps = markedPaths().filter((p) => { const q = stripOrigin(p); return !(q.includes(":") ? q === n.qpath : q === n.path); });
+  if (on) ps.push(pathOf(n));
+  setPaths(ps);
+}
+
+// ---------- marked only ----------
+
+let markedOnly = false;
+const allowedIds = new Set<number>(); // ancestors of marked nodes
+const markedIds = new Set<number>();
+
+async function computeMarked() {
+  allowedIds.clear();
+  markedIds.clear();
+  if (!S.schema) return;
+  for (const p of markedPaths()) {
+    try {
+      const r = await api.find(p);
+      markedIds.add(r.node.id);
+      for (const a of r.ancestors) { allowedIds.add(a); await loadChildren(a); S.expanded.add(a); }
+    } catch { /* not in the models */ }
+  }
+}
+
+async function setMarkedOnly(on: boolean) {
+  markedOnly = on;
+  markedOnlyBtn.classList.toggle("on", on);
+  if (on) {
+    searchInput.value = "";
+    S.searchResults = null;
+    treeHost.replaceChildren(tree.el);
+    await computeMarked();
+  }
+  refreshTree();
 }
 
 function kindBadge(n: SNode) {
@@ -844,10 +963,10 @@ function renderTreeRow(n: SNode, depth: number) {
   row.style.paddingLeft = `${depth * 16 + 4}px`;
   const caret = h("span", { class: "caret" + (n.hasChildren ? "" : " none") }, n.hasChildren ? (open ? "▾" : "▸") : "");
   caret.addEventListener("click", (e) => { e.stopPropagation(); toggle(n.id); });
-  const cb = h("input", { type: "checkbox", title: "Mark this path", checked: markedPaths().includes(n.path) });
+  const cb = h("input", { type: "checkbox", title: "Mark this path", checked: isMarked(n) });
   cb.addEventListener("click", (e) => e.stopPropagation());
-  cb.addEventListener("change", () => toggleMark(n.path, cb.checked));
-  append(row, caret, cb, kindBadge(n), overlayMark(n), h("span", { class: "name" }, n.name),
+  cb.addEventListener("change", () => toggleNode(n, cb.checked));
+  append(row, caret, cb, kindBadge(n), overlayMark(n), nodeName(n),
     n.keys?.length ? h("span", { class: "keys" }, `[${n.keys.join(" ")}]`) : null,
     n.type ? h("span", { class: "type" }, n.type.name) : null,
     h("span", { class: "rw" }, n.config ? "rw" : "ro"));
@@ -856,13 +975,21 @@ function renderTreeRow(n: SNode, depth: number) {
   return row;
 }
 
+// nodeName shows the module where it changes from the parent (roots and
+// augmented nodes) when qualified names are on.
+function nodeName(n: SNode) {
+  const parentMod = n.parent >= 0 ? S.nodes.get(n.parent)?.module : undefined;
+  const showMod = qualified && n.module && (n.parent < 0 || (parentMod !== undefined && parentMod !== n.module));
+  return h("span", { class: "name", title: n.module }, showMod ? h("span", { class: "mod" }, n.module + ":") : null, n.name);
+}
+
 function renderSearchRow(n: SNode) {
   const row = h("div", { class: "srow" + (S.selected === n.id ? " sel" : "") });
-  const cb = h("input", { type: "checkbox", title: "Mark this path", checked: markedPaths().includes(n.path) });
+  const cb = h("input", { type: "checkbox", title: "Mark this path", checked: isMarked(n) });
   cb.addEventListener("click", (e) => e.stopPropagation());
-  cb.addEventListener("change", () => toggleMark(n.path, cb.checked));
+  cb.addEventListener("change", () => toggleNode(n, cb.checked));
   append(row, h("div", {}, cb, kindBadge(n), h("span", { class: "name" }, n.name), h("span", { class: "muted small" }, ` ${n.module}`)),
-    h("div", { class: "spath" }, n.path));
+    h("div", { class: "spath" }, pathOf(n)));
   row.addEventListener("click", () => reveal(n.id));
   return row;
 }
@@ -880,6 +1007,7 @@ async function toggle(id: number) {
 async function search(q: string) {
   if (!S.schema) return;
   q = q.trim();
+  if (q && markedOnly) setMarkedOnly(false);
   if (!q) {
     S.searchResults = null;
     treeHost.replaceChildren(tree.el);
@@ -955,18 +1083,19 @@ function showDetails(d: NodeDetail) {
   if (n.choice) rows.push(["Choice/case", n.choice]);
   if (n.hasChildren) rows.push(["Children", String(n.childCount)]);
   if (n.location) rows.push(["Defined at", n.location]);
-  const marked = markedPaths().includes(n.path);
+  const marked = isMarked(n);
+  const np = pathOf(n), other = qualified ? n.path : originFor(n.qpath) + n.qpath;
   const twin = twinPath(n.path);
   const instHost = h("div", { class: "instances-host" });
   append(details,
     h("h2", {}, kindBadge(n), " ", n.name),
     h("div", { class: "path-box" },
-      h("code", {}, n.path),
-      h("button", { class: "small", onclick: () => copyText(n.path, "path") }, "Copy"),
-      h("button", { class: "small", onclick: () => copyText(n.qpath, "module-qualified path") }, "Copy qualified")),
+      h("code", {}, np),
+      h("button", { class: "small", onclick: () => copyText(np, "path") }, "Copy"),
+      h("button", { class: "small", title: other, onclick: () => copyText(other, qualified ? "plain path" : "qualified path") }, qualified ? "Copy plain" : "Copy qualified")),
     h("div", { class: "row" },
-      h("button", { class: "primary", onclick: () => { if (!markedPaths().includes(n.path)) toggleMark(n.path, true); showTab("Data"); doGet([n.path]); } }, "Get this path"),
-      h("button", { onclick: () => { toggleMark(n.path, !marked); showDetails(d); } }, marked ? "Unmark" : "Mark"),
+      h("button", { class: "primary", onclick: () => { if (!isMarked(n)) toggleNode(n, true); showTab("Data"); doGet([np]); } }, "Get this path"),
+      h("button", { onclick: () => { toggleNode(n, !marked); showDetails(d); } }, marked ? "Unmark" : "Mark"),
       n.kind === "list" && n.keys?.length ? h("button", { title: "List the entries on the device (reads only the keys)", onclick: () => showInstances(n, instHost) }, "Instances") : null,
       twin ? h("button", {
         title: `Go to ${twin.includes("/state/") ? "the state" : "the config"} twin`,
@@ -976,7 +1105,7 @@ function showDetails(d: NodeDetail) {
         title: "Build a change for this node: validate, preview, then apply with confirmation",
         onclick: () => {
           if (!S.session) { toast("Connect a device first", "err"); return; }
-          openConfigDialog(n, S.session, () => { if (markedPaths().length) doGet(); });
+          openConfigDialog(n, S.session, () => { if (markedPaths().length) doGet(); }, { path: np, shell });
         },
       }, "Configure…") : null),
     instHost,
@@ -1064,7 +1193,7 @@ function renderDataRow(n: DNode) {
   caret.addEventListener("click", () => { dataOpen.has(n.id) ? dataOpen.delete(n.id) : dataOpen.add(n.id); dataList.setItems(visibleData()); });
   const cb = h("input", { type: "checkbox", checked: dataSel.has(n.id), title: "Select for copying" });
   cb.addEventListener("change", () => { cb.checked ? dataSel.add(n.id) : dataSel.delete(n.id); dataList.refresh(); });
-  const label = showPrefixes ? n.label : bare(n.label);
+  const label = qualified ? n.label : bare(n.label);
   append(row, caret, cb, h("span", { class: "dkey" }, label),
     n.leaf ? h("span", { class: "dval" + (typeof n.value === "string" ? " str" : "") }, preview(n.value)) : h("span", { class: "muted" }, preview(n.value)));
   // Full path (with module prefixes) and value on hover; double-click opens the schema node.
@@ -1183,37 +1312,66 @@ async function doGet(paths = markedPaths()) {
   }
 }
 
-// ---------- commands ----------
+// ---------- command preview ----------
 
-async function generate() {
+let cmdTimer = 0;
+function updateCmd() {
+  clearTimeout(cmdTimer);
+  cmdTimer = window.setTimeout(genCmd, 200);
+}
+
+async function genCmd() {
+  const mode = cmdMode.value;
+  cmdInterval.hidden = mode !== "stream";
   const paths = markedPaths();
   const req: Record<string, unknown> = {
-    paths, mode: genMode.value, shell: genShell.value, sampleInterval: genInterval.value,
-    type: typeSel.value, encoding: encSel.value || S.session?.encoding || "",
+    paths, mode, shell: shell(), sampleInterval: cmdInterval.value,
+    type: typeSel.value, encoding: encSel.value || "",
   };
   if (S.session) req.session = S.session.id;
   else {
     const d = devices.find((x) => x.key === selectedKey);
-    if (!d) { toast("Select or connect a device first", "err"); return; }
-    req.target = d.target; // no password: generated commands use $GNMI_PASSWORD
+    if (!d || !d.target.address) { cmdText.textContent = ""; cmdNote.textContent = "Select or connect a device to see the gNMIc command."; return; }
+    req.target = d.target; // no password: commands use $GNMI_PASSWORD
   }
-  clear(genOut);
+  if (mode !== "capabilities" && !paths.length) { cmdText.textContent = ""; cmdNote.textContent = "Mark paths to see the gNMIc command."; return; }
   try {
     const out = await api.generate(req);
-    for (const c of out.commands) {
-      genOut.append(h("div", { class: "cmd" },
-        h("div", { class: "row between" }, h("strong", {}, c.title), h("button", { class: "small", onclick: () => copyText(c.text, "command") }, "Copy")),
-        c.note ? h("div", { class: "muted small" }, c.note) : null,
-        h("pre", { class: "code" }, c.text)));
-    }
-    if (out.config) {
-      genOut.append(h("div", { class: "cmd" },
-        h("div", { class: "row between" }, h("strong", {}, "gNMIc config file"), h("button", { class: "small", onclick: () => copyText(out.config!, "config") }, "Copy")),
-        h("pre", { class: "code" }, out.config)));
-    }
+    const c = out.commands[0];
+    cmdText.textContent = c?.text ?? "";
+    cmdNote.textContent = (c?.note ? c.note + ". " : "") + "Credentials come from $GNMI_USERNAME and $GNMI_PASSWORD.";
   } catch (e) {
-    genOut.append(h("p", { class: "err" }, errText(e)));
+    cmdText.textContent = "";
+    cmdNote.textContent = errText(e);
   }
+}
+
+// ---------- restore after reload ----------
+
+async function restoreSessions() {
+  let ss: Session[];
+  try { ss = await api.sessions(); } catch { return; }
+  if (!ss?.length) return;
+  for (const s of ss) {
+    if (S.sessions.some((x) => x.id === s.id)) continue;
+    S.sessions.push(s);
+    const key = s.device ? `k:${s.device.namespace}/${s.device.name}` : s.preset ? "p:" + s.preset : "";
+    let d = key ? devices.find((x) => x.key === key) : devices.find((x) => !x.session && x.key.startsWith("a:") && x.target.address === s.address);
+    if (!d) {
+      d = {
+        key: key || `a:${++adhocSeq}`, name: s.device ? `${s.device.namespace}/${s.device.name}` : s.label,
+        target: { address: s.address, jumps: s.jumps }, state: "off",
+        k8s: s.device ? { namespace: s.device.namespace, name: s.device.name, ready: "?", paused: false, provider: s.device.provider } : undefined,
+      };
+      devices.push(d);
+    }
+    d.session = s;
+    d.state = "on";
+  }
+  renderDevices();
+  const want = store.get("active");
+  const s = ss.find((x) => x.id === want) ?? ss[ss.length - 1];
+  await activate(s.id);
 }
 
 mount();
@@ -1288,6 +1446,7 @@ function overlay() {
 // module tells apart same-named top nodes such as ietf, openconfig and vendor
 // "system".
 function schemaKey(p: string): string {
+  p = stripOrigin(p);
   const out: string[] = [];
   let depth = 0, cur = "";
   for (const ch of p) {
@@ -1348,7 +1507,7 @@ async function showInstances(n: SNode, host: HTMLElement) {
   clear(host);
   host.append(h("p", { class: "muted small" }, "Reading instances…"));
   const keys = n.keys ?? [];
-  const paths = keys.map((k) => `${n.path}/${k}`);
+  const paths = keys.map((k) => `${pathOf(n)}/${k}`);
   try {
     const r = await api.get(S.session.id, paths, "all", "");
     recordOverlay(paths, r);
@@ -1371,7 +1530,7 @@ async function showInstances(n: SNode, host: HTMLElement) {
       for (const [path, rec] of inst) {
         const label = keys.map((k) => rec[k] ?? "").join(" · ");
         if (q && !label.toLowerCase().includes(q)) continue;
-        const display = showPrefixes ? path : path.replace(/\/[^/[\]]+:/g, "/");
+        const display = reqPath(path);
         body.append(h("tr", {},
           h("td", {}, label),
           h("td", { class: "actions" },

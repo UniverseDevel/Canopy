@@ -94,11 +94,17 @@ func Load(dir string) ([]*Fixture, error) {
 
 // Parse reads one fixture file.
 func Parse(file string) (*Fixture, error) {
-	a, err := txtar.ParseFile(file)
+	b, err := os.ReadFile(file)
 	if err != nil {
 		return nil, apperr.Wrap(apperr.ClassUsage, apperr.CodeUsage, err)
 	}
-	f := &Fixture{File: filepath.Base(file), Title: strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(a.Comment)), "#"))}
+	return ParseBytes(filepath.Base(file), b)
+}
+
+// ParseBytes parses fixture text.
+func ParseBytes(name string, b []byte) (*Fixture, error) {
+	a := txtar.Parse(b)
+	f := &Fixture{File: name, Title: strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(a.Comment)), "#"))}
 	for _, af := range a.Files {
 		body := strings.TrimSpace(string(af.Data))
 		switch af.Name {

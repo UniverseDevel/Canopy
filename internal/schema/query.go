@@ -50,6 +50,7 @@ func (t *Tree) Ancestors(id int) []int {
 // openconfig-system and a vendor module), a module prefix on the first element
 // ("/srl_nokia-system:system/...", as devices send in JSON_IETF) picks the module.
 func (t *Tree) FindPath(p string) *Node {
+	p = stripOrigin(p)
 	want := normPath(p)
 	first := strings.SplitN(strings.TrimLeft(p, "/"), "/", 2)[0]
 	mod := ""
@@ -114,7 +115,7 @@ func (t *Tree) Search(q string, limit int) []SearchResult {
 		name := strings.ToLower(n.Name)
 		var score int
 		switch {
-		case byPath && (strings.Contains(strings.ToLower(n.Path), q) || strings.Contains(strings.ToLower(stripKeys(n.Path)), q)):
+		case byPath && (strings.Contains(strings.ToLower(n.Path), q) || strings.Contains(strings.ToLower(stripKeys(n.Path)), q) || strings.Contains(strings.ToLower(stripKeys(n.QPath)), q)):
 			score = 2
 		case name == q:
 			score = 0
@@ -241,4 +242,15 @@ func stripKeys(p string) string {
 		}
 	}
 	return b.String()
+}
+
+// stripOrigin drops a gNMI origin ("openconfig:/system" -> "/system").
+func stripOrigin(p string) string {
+	if strings.HasPrefix(p, "/") {
+		return p
+	}
+	if i := strings.Index(p, ":/"); i > 0 && !strings.ContainsAny(p[:i], "/[") {
+		return p[i+1:]
+	}
+	return p
 }

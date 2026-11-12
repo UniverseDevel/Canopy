@@ -102,3 +102,14 @@ func TestExportRoundTrip(t *testing.T) {
 		t.Errorf("touched %+v", applied)
 	}
 }
+
+func TestMatchUnorderedAndEmpty(t *testing.T) {
+	want := map[string]any{"a": map[string]any{"b": []any{"x", "y"}}, "empty": map[string]any{}}
+	got := map[string]any{"a": map[string]any{"b": []any{"y", "x"}}}
+	if ok, d := Match(want, got); !ok {
+		t.Errorf("should match: %+v", d)
+	}
+	if ok, d := Match(want, map[string]any{"a": map[string]any{"b": []any{"x"}}}); ok || len(d) == 0 {
+		t.Errorf("should differ: %v %+v", ok, d)
+	}
+}

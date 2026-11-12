@@ -21,8 +21,8 @@ function keyHint(path: string): string {
   return path.replace(/=\*\]/g, "=]");
 }
 
-export async function openConfigDialog(n: SNode, session: Session, onApplied: () => void) {
-  const path = h("input", { value: keyHint(n.path), class: "mono" });
+export async function openConfigDialog(n: SNode, session: Session, onApplied: () => void, opt: { path?: string; shell?: () => string } = {}) {
+  const path = h("input", { value: keyHint(opt.path ?? n.path), class: "mono" });
   const op = h("select", {},
     h("option", { value: "update" }, "update (merge)"),
     h("option", { value: "replace" }, "replace (remove what isn't given)"),
@@ -88,14 +88,31 @@ export async function openConfigDialog(n: SNode, session: Session, onApplied: ()
     if (o.destructive) out.append(h("p", { class: "warn small" }, "⚠ Replace/delete removes existing configuration."));
     append(out,
       h("details", { open: !o.sent }, h("summary", {}, "SetRequest preview"), h("pre", { class: "code" }, o.preview)),
-      ...o.gnmic.map((c) => h("details", {}, h("summary", {}, c.title),
-        h("div", { class: "row" }, h("button", { class: "small", onclick: () => copyText(c.text, "command") }, "Copy")),
-        h("pre", { class: "code" }, c.text))));
+      ...o.gnmic.map((c) => h("div", { class: "cmd-preview inline" },
+        h("div", { class: "cmd-bar" }, h("span", { class: "cmd-label" }, c.title), h("span", { class: "grow" }),
+          h("button", { class: "small", onclick: () => copyText(c.text, "command") }, "Copy")),
+        h("code", { class: "cmd-line" }, c.text),
+        c.note ? h("div", { class: "muted small cmd-note" }, c.note) : null)));
     if (o.sent) {
       out.append(h("p", { class: "ok" }, `✓ Applied in ${o.result?.elapsedMs ?? "?"} ms`));
       if (o.diff) out.append(renderDiff(o.diff));
     }
   };
+
+  // Live preview: validate and show the equivalent command while editing
+  // (a dry run; nothing is sent).
+  let timer = 0;
+  const live = () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(async () => {
+      let list;
+      try { list = ops(); } catch { return; }
+      if (list.some((x) => x.path.includes("=]") || x.path.includes("=*]"))) return;
+      try { show(await configApi.set({ session: session.id, ops: list, dryRun: true, shell: opt.shell?.() })); } catch { /* shown on Validate */ }
+    }, 500);
+  };
+  for (const el of [path, op, value]) { el.addEventListener("input", live); el.addEventListener("change", live); }
+  live();
 
   await modal(`Configure ${n.name}`, body, [
     { label: "Validate & preview", value: "dry" },
@@ -108,7 +125,7 @@ export async function openConfigDialog(n: SNode, session: Session, onApplied: ()
       if (list.some((x) => x.path.includes("=]") || x.path.includes("=*]"))) { show(undefined, "Fill in the list keys in the path."); return true; }
       if (v === "apply" && !confirm.checked) { show(undefined, "Tick the confirmation first."); confirmLabel.classList.add("attention"); return true; }
       try {
-        const o = await configApi.set({ session: session.id, ops: list, dryRun: v === "dry", confirm: v === "apply" });
+        const o = await configApi.set({ session: session.id, ops: list, dryRun: v === "dry", confirm: v === "apply", shell: opt.shell?.() });
         show(o);
         if (o.sent) { confirm.checked = false; onApplied(); }
       } catch (e) {

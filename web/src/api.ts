@@ -71,7 +71,7 @@ export interface Target {
 }
 
 export interface GenCommand { title: string; text: string; note?: string }
-export interface GenOutput { shell: string; commands: GenCommand[]; config?: string }
+export interface GenOutput { shell: string; commands: GenCommand[] }
 
 const token = new URLSearchParams(location.search).get("token") ?? "";
 
@@ -84,6 +84,10 @@ async function call<T>(method: string, url: string, body?: unknown, exact = fals
   const text = await res.text();
   let data: any = null;
   try { data = text ? (exact ? parse(text) : JSON.parse(text)) : null; } catch { /* not JSON */ }
+  // Anything that may have reached a device is audited; tell the console.
+  if (method !== "GET" && !url.startsWith("/api/format") && !url.startsWith("/api/generate")) {
+    window.dispatchEvent(new Event("canopy:audit"));
+  }
   if (!res.ok) {
     throw new ApiError(data?.error ?? { code: "http_" + res.status, message: text || res.statusText }, res.status, data);
   }
@@ -94,12 +98,14 @@ export const api = {
   info: () => call<{ build: { version: string; commit: string } }>("GET", "/api/info"),
   connect: (t: Target) => call<Session>("POST", "/api/connect", t),
   disconnect: (session: string) => call("POST", "/api/disconnect", { session }),
+  sessions: () => call<Session[]>("GET", "/api/sessions"),
   get: (session: string, paths: string[], type: string, encoding: string) =>
     call<GetResult>("POST", "/api/get", { session, paths, type, encoding }, true),
   generate: (req: Record<string, unknown>) => call<GenOutput>("POST", "/api/generate", req),
   loadSchema: (dirs: string[], force = false) => call<SchemaSummary>("POST", "/api/schema/load", { dirs, force }),
   presets: () => call<Preset[]>("GET", "/api/connections"),
-  savePreset: (p: Preset) => call<Preset>("PUT", "/api/connections", p),
+  savePreset: (p: Preset, keychain?: { password?: string; rememberPassword?: boolean; forgetPassword?: boolean }) =>
+    call<Preset>("PUT", "/api/connections", { ...p, ...(keychain ?? {}) }),
   deletePreset: (name: string) => call("DELETE", `/api/connections?name=${encodeURIComponent(name)}`),
   schema: () => call<SchemaSummary>("GET", "/api/schema"),
   children: (id: number) => call<SNode[]>("GET", `/api/schema/children?id=${id}`),
@@ -156,7 +162,7 @@ export const snapApi = {
 export interface OpOptions { kubeconfig?: string; context?: string; jumps?: string[]; identityFiles?: string[]; operatorRepo?: string; timeoutSec?: number }
 export interface Condition { type: string; status: string; reason?: string; message?: string }
 export interface K8sDevice { namespace: string; name: string; provider: string; address: string; phase?: string; paused: boolean; ready: string; conditions: Condition[]; tls: boolean }
-export interface K8sResource { kind: string; resource: string; namespace: string; name: string; ready: string; paused: boolean; conditions: Condition[]; spec?: Record<string, unknown>; generation: number; observedGeneration: number }
+export interface K8sResource { kind: string; resource: string; version?: string; namespace: string; name: string; ready: string; paused: boolean; conditions: Condition[]; spec?: Record<string, unknown>; generation: number; observedGeneration: number }
 export interface VerifyLeaf { path: string; expected?: unknown; actual?: unknown; status: string; from?: string }
 export interface Verification { resource: K8sResource; device: string; fixture: string; mode: string; verdict: string; reasons: string[]; leaves: VerifyLeaf[]; alternates?: string[]; elapsedMs: number }
 
@@ -171,4 +177,31 @@ export const opApi = {
     call<{ paused: boolean; condition: string }>("POST", "/api/operator/pause", { options, kind, namespace, name, paused, waitSec: 30 }),
   verify: (options: OpOptions, session: string, kind: string, namespace: string, name: string, deleted = false) =>
     call<Verification>("POST", "/api/operator/verify", { options, session, kind, namespace, name, deleted }, true),
+};
+
+export interface AuditEntry {
+  seq: number; time: string; session?: string; device?: string; action: string; summary?: string;
+  command?: Record<string, string>; ok: boolean; error?: string; ms: number;
+}
+export const auditApi = {
+  list: (since: number) => call<{ entries: AuditEntry[]; file: string }>("GET", `/api/audit?since=${since}`),
+};
+
+export interface FixtureInfo { file: string; title: string; kinds: string[] }
+export interface FixtureStep { time: string; step: string; ok: boolean; detail?: string }
+export interface FixtureRun {
+  fixture: string; title: string; namespace: string; verdict: string; steps: FixtureStep[];
+  diff?: { path: string; kind: string; before?: unknown; after?: unknown }[]; elapsedMs: number;
+}
+export interface FixtureRunOptions {
+  provider: string; file?: string; text?: string; deviceAddress: string; shadowControl?: string; shadowListen?: string;
+  tls: boolean; username?: string; password?: string; timeoutSec?: number; keep?: boolean;
+}
+export const fixturesApi = {
+  list: (options: OpOptions, provider = "") =>
+    call<{ repo: string; dir?: string; providers: string[]; fixtures: FixtureInfo[] }>("POST", "/api/fixtures/list", { options, provider }),
+  read: (options: OpOptions, provider: string, file: string) => call<{ text: string }>("POST", "/api/fixtures/read", { options, provider, file }),
+  export: (b: { title: string; cr: string; preload?: string; expect: string; delete?: string }) => call<{ text: string }>("POST", "/api/fixtures/export", b),
+  save: (options: OpOptions, provider: string, name: string, text: string) => call<{ file: string }>("POST", "/api/fixtures/save", { options, provider, name, text }),
+  run: (options: OpOptions, run: FixtureRunOptions) => call<FixtureRun>("POST", "/api/fixtures/run", { options, run }, true),
 };

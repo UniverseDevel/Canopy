@@ -9,6 +9,7 @@ import { stringify } from "./json";
 export interface OpContext {
   session(): Session | null;
   options(): OpOptions;
+  toFixture?(r: K8sResource): void;
 }
 
 function badge(status: string, kind: "ready" | "verdict" | "leaf" = "ready") {
@@ -71,6 +72,7 @@ export function operatorTab(ctx: OpContext) {
     h("td", { class: "actions" },
       h("button", { class: "small primary", title: "Check that this resource's intent is on the device", onclick: () => verify(r.kind, r.name) }, "Verify"),
       h("button", { class: "small", onclick: () => pause(r.kind, r.name, !r.paused) }, r.paused ? "Resume" : "Pause"),
+      ctx.toFixture ? h("button", { class: "small", title: "Build a test fixture for this resource (Fixtures tab)", onclick: () => ctx.toFixture!(r) }, "Fixture") : null,
       h("button", { class: "small icon", title: "Show spec", onclick: () => { clear(result); result.append(h("h4", {}, `${r.kind} ${r.name} spec`), h("pre", { class: "code" }, stringify(r.spec ?? {}))); } }, "{}")));
 
   const refresh = async () => {

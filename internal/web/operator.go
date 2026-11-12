@@ -2,9 +2,12 @@ package web
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/UniverseDevel/Canopy/internal/app"
+	"github.com/UniverseDevel/Canopy/internal/apperr"
+	"github.com/UniverseDevel/Canopy/internal/generate"
 	"github.com/UniverseDevel/Canopy/internal/k8s"
 )
 
@@ -77,11 +80,14 @@ func (s *Server) opConnect(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err, 0)
 		return
 	}
+	start := time.Now()
 	sess, err := s.svc.ConnectDevice(r.Context(), s.opts(req.Options), req.Namespace, req.Name, req.Target)
 	if err != nil {
+		s.audit.add(AuditEntry{Device: req.Namespace + "/" + req.Name, Action: "connect", Summary: "operator Device", Error: apperr.As(err).Error(), Ms: time.Since(start).Milliseconds()})
 		writeErr(w, err, 0)
 		return
 	}
+	s.record(sess.ID, "connect", "operator Device "+req.Namespace+"/"+req.Name, &generate.Request{Mode: "capabilities"}, start, nil)
 	writeJSON(w, sess)
 }
 
@@ -124,8 +130,16 @@ func (s *Server) opPause(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err, 0)
 		return
 	}
-	if err := cl.SetPaused(r.Context(), req.Kind, req.Namespace, req.Name, req.Paused); err != nil {
-		writeErr(w, err, 0)
+	start := time.Now()
+	perr := cl.SetPaused(r.Context(), req.Kind, req.Namespace, req.Name, req.Paused)
+	act := "resume"
+	if req.Paused {
+		act = "pause"
+	}
+	s.audit.add(AuditEntry{Action: act, Summary: req.Kind + " " + req.Namespace + "/" + req.Name, OK: perr == nil, Error: errString(perr), Ms: time.Since(start).Milliseconds(),
+		Command: map[string]string{"bash": kubectlPause(req.Kind, req.Namespace, req.Name, req.Paused), "powershell": kubectlPause(req.Kind, req.Namespace, req.Name, req.Paused)}})
+	if perr != nil {
+		writeErr(w, perr, 0)
 		return
 	}
 	state := ""
@@ -152,10 +166,31 @@ func (s *Server) opVerify(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err, 0)
 		return
 	}
+	start := time.Now()
 	v, err := s.svc.Verify(r.Context(), s.opts(req.Options), req.Session, req.Kind, req.Namespace, req.Name, req.Deleted, req.Fixture)
+	sum := req.Kind + " " + req.Namespace + "/" + req.Name
+	if v != nil {
+		sum += ": " + v.Verdict
+	}
+	s.record(req.Session, "verify", sum, nil, start, err)
 	if err != nil {
 		writeErr(w, err, 0)
 		return
 	}
 	writeJSON(w, v)
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return apperr.As(err).Error()
+}
+
+// kubectlPause is the kubectl command equivalent to pausing or resuming.
+func kubectlPause(kind, ns, name string, paused bool) string {
+	if paused {
+		return "kubectl annotate " + strings.ToLower(kind) + " " + name + " -n " + ns + " "+k8s.PausedAnnotation+"=true --overwrite"
+	}
+	return "kubectl annotate " + strings.ToLower(kind) + " " + name + " -n " + ns + " "+k8s.PausedAnnotation+"-"
 }
