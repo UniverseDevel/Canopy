@@ -27,6 +27,11 @@ func newGetCmd(g *globals) *cobra.Command {
 			default:
 				return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "--format must be json, yaml, flat or notifications")
 			}
+			if len(paths) == 0 && f.preset != "" {
+				if p, err := g.presets().Get(f.preset); err == nil {
+					paths = p.Paths // the connection's favourite paths
+				}
+			}
 			if len(paths) == 0 {
 				return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "--path is required")
 			}
@@ -205,6 +210,16 @@ func newGenerateCmd(g *globals) *cobra.Command {
 			t, err := g.target(&f, false)
 			if err != nil {
 				return err
+			}
+			if f.preset != "" {
+				if p, err := g.presets().Get(f.preset); err == nil {
+					if len(r.Paths) == 0 {
+						r.Paths = p.Paths
+					}
+					if r.Encoding == "" {
+						r.Encoding = p.Encoding
+					}
+				}
 			}
 			out, err := g.service().Generate("", &t, r)
 			if err != nil {

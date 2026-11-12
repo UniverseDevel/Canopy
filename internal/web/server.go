@@ -20,6 +20,7 @@ import (
 	"github.com/UniverseDevel/Canopy/internal/app"
 	"github.com/UniverseDevel/Canopy/internal/apperr"
 	"github.com/UniverseDevel/Canopy/internal/buildinfo"
+	"github.com/UniverseDevel/Canopy/internal/connections"
 	"github.com/UniverseDevel/Canopy/internal/format"
 	"github.com/UniverseDevel/Canopy/internal/generate"
 	"github.com/UniverseDevel/Canopy/internal/live"
@@ -105,6 +106,9 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("GET /api/schema/search", s.schemaSearch)
 	api.HandleFunc("GET /api/schema/find", s.schemaFind)
 	api.HandleFunc("POST /api/format", s.format)
+	api.HandleFunc("GET /api/connections", s.connList)
+	api.HandleFunc("PUT /api/connections", s.connSave)
+	api.HandleFunc("DELETE /api/connections", s.connDelete)
 	mux.Handle("/api/", s.guard(api))
 	return s.secure(mux)
 }
@@ -248,6 +252,7 @@ func (s *Server) schemaLoad(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Dirs    []string `json:"dirs"`
 		Modules []string `json:"modules"`
+		Force   bool     `json:"force"`
 	}
 	if err := decode(r, &req); err != nil {
 		writeErr(w, err, 0)
@@ -259,7 +264,7 @@ func (s *Server) schemaLoad(w http.ResponseWriter, r *http.Request) {
 			dirs = append(dirs, d)
 		}
 	}
-	t, err := s.svc.LoadSchema(dirs, schema.LoadOptions{Modules: req.Modules})
+	t, err := s.svc.LoadSchema(dirs, schema.LoadOptions{Modules: req.Modules, Force: req.Force})
 	if err != nil {
 		writeErr(w, err, 0)
 		return
@@ -277,9 +282,12 @@ func (s *Server) tree(w http.ResponseWriter) *schema.Tree {
 }
 
 func (s *Server) schemaSummary(w http.ResponseWriter, _ *http.Request) {
-	if t := s.tree(w); t != nil {
-		writeJSON(w, t.Summary())
+	t, err := s.svc.Tree()
+	if err != nil {
+		writeJSON(w, nil) // nothing loaded yet
+		return
 	}
+	writeJSON(w, t.Summary())
 }
 
 func (s *Server) schemaChildren(w http.ResponseWriter, r *http.Request) {
@@ -367,4 +375,41 @@ func (s *Server) format(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"text": out})
+}
+
+func (s *Server) connList(w http.ResponseWriter, _ *http.Request) {
+	list, err := s.svc.Presets.List()
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, list)
+}
+
+// connSave saves a preset. Passwords in the request are ignored (the type has no
+// password field).
+func (s *Server) connSave(w http.ResponseWriter, r *http.Request) {
+	var c connections.Connection
+	if err := decode(r, &c); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	if err := s.svc.Presets.Put(c); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	saved, err := s.svc.Presets.Get(c.Name)
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, saved)
+}
+
+func (s *Server) connDelete(w http.ResponseWriter, r *http.Request) {
+	if err := s.svc.Presets.Delete(r.URL.Query().Get("name")); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
 }

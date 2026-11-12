@@ -77,6 +77,36 @@ chain) use the SSH agent (Windows OpenSSH agent pipe, or `SSH_AUTH_SOCK`), keys 
 (`--accept-host-key SHA256:…`, or confirmed at the prompt or in the UI). Key passphrases
 come from `CANOPY_SSH_PASSPHRASE` or a prompt.
 
+### Saved connections
+
+Save a device once and use it by name. Several devices can be connected at the same
+time in the UI (the chips under the connection form switch between them; each keeps its
+own paths, data and YANG folders).
+
+```bash
+canopy conn save leaf1 -a 10.0.0.5:57400 --tls-ca ca.pem -u admin -J admin@jump.example.net --yang ./models/nxos-10.4-3 -p /System/intf-items --password-env LEAF1_PASSWORD
+```
+
+```bash
+canopy get --conn leaf1
+```
+
+```bash
+canopy conn list
+```
+
+Flags given with `--conn` override the saved values. `get` and `generate gnmic` use
+the saved paths when no `--path` is given. A preset stores target, TLS, user name,
+jump hosts and key files, preferred encoding, YANG folders, favourite paths, a
+description and tags, plus what the device reported the last time
+(`lastSeen`). **Passwords are never stored**; `--password-env` names the environment
+variable with that device's password (default `GNMI_PASSWORD`).
+
+Presets live in `canopy conn path` (the user config folder, or `$CANOPY_CONFIG_DIR`).
+Extra read-only preset files, for example a team file, are added with
+`CANOPY_CONNECTIONS` (separated like `PATH`); relative paths in them resolve against the
+file's folder. [`lab/connections.yaml`](lab/connections.yaml) holds the lab presets.
+
 **Git Bash on Windows** rewrites arguments that start with `/` into Windows paths
 (`/system` becomes `C:/Program Files/Git/system`). Run with `MSYS_NO_PATHCONV=1`, or
 use PowerShell.
@@ -89,11 +119,18 @@ automatically:
 | Configuration | What it does |
 |---|---|
 | Build canopy | Builds `bin/canopy` and prints the version |
-| Canopy UI | Starts the UI with the lab's SR Linux models |
+| Canopy UI | Starts the UI; the lab presets are in the "Saved" list |
 | Canopy UI (rebuild web) | Same, after rebuilding the frontend (needs Node.js and `npm ci` in `web/`) |
 | All tests | `go test ./...` |
 | Web build / watch / check | Frontend build, rebuild on change, type check |
-| Lab - connect / get / tree | Quick checks against the local SR Linux lab node |
+| Lab - list connections | Lists the lab presets (and your own) |
+| Lab - connect lab-srl1 / -verified / -jump | Connects with each lab preset: TLS skip-verify, TLS verified with the lab CA, through the SSH jump host |
+| Lab - get lab-srl1 | Reads the preset's favourite paths |
+| Lab - tree find login-banner | Schema search in the SR Linux models |
+
+The UI and Lab configurations set `CANOPY_CONNECTIONS` to
+[`lab/connections.yaml`](lab/connections.yaml), which is exactly what is used for local
+testing, and `GNMI_PASSWORD` to the SR Linux lab default.
 
 The IDE needs the Go plugin (built into GoLand); the `Web` configurations need the
 JavaScript plugin (IntelliJ IDEA Ultimate, GoLand, WebStorm).

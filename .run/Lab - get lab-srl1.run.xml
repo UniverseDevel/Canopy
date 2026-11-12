@@ -1,0 +1,18 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Lab - get lab-srl1" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="Canopy" />
+    <working_directory value="$PROJECT_DIR$" />
+    <parameters value="get --conn lab-srl1 --non-interactive -f yaml" />
+    <envs>
+      <env name="CANOPY_CONNECTIONS" value="$PROJECT_DIR$/lab/connections.yaml" />
+      <env name="GNMI_PASSWORD" value="NokiaSrl1!" />
+    </envs>
+    <kind value="PACKAGE" />
+    <package value="github.com/UniverseDevel/Canopy/cmd/canopy" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$/cmd/canopy/main.go" />
+    <output_directory value="$PROJECT_DIR$/bin" />
+    <method v="2">
+    </method>
+  </configuration>
+</component>

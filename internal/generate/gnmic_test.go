@@ -39,7 +39,7 @@ func TestStreamThroughJump(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Commands[0].Text != "ssh -N -L 9339:10.0.0.5:9339 -J a@j1 b@j2:2222" {
+	if out.Commands[0].Text != "ssh -N -L 9339:10.0.0.5:9339 -J a@j1 -p 2222 b@j2" {
 		t.Errorf("tunnel: %s", out.Commands[0].Text)
 	}
 	c := strings.ReplaceAll(out.Commands[1].Text, " `\n  ", " ")

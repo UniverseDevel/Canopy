@@ -6,12 +6,15 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"log/slog"
+	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/UniverseDevel/Canopy/internal/apperr"
 	"github.com/UniverseDevel/Canopy/internal/conn"
+	"github.com/UniverseDevel/Canopy/internal/connections"
 	"github.com/UniverseDevel/Canopy/internal/generate"
 	"github.com/UniverseDevel/Canopy/internal/live"
 	"github.com/UniverseDevel/Canopy/internal/schema"
@@ -38,6 +41,29 @@ type Target struct {
 	SSHPassword    string            `json:"sshPassword,omitempty"`
 	AcceptHostKeys []string          `json:"acceptHostKeys,omitempty"`
 	SaveHostKeys   bool              `json:"saveHostKeys,omitempty"`
+
+	// Preset is the saved connection this target came from, if any. Its
+	// passwordEnv, encoding and YANG folders apply, and its lastSeen is updated.
+	Preset string `json:"preset,omitempty"`
+}
+
+// TargetFrom converts a preset into a target (without secrets).
+func TargetFrom(c *connections.Connection) Target {
+	return Target{
+		Address: c.Address, Insecure: c.Insecure, SkipVerify: c.SkipVerify,
+		CAFile: c.CAFile, CertFile: c.CertFile, KeyFile: c.KeyFile, ServerName: c.ServerName,
+		Username: c.Username, TimeoutSec: c.TimeoutSec,
+		Jumps: c.Jumps, IdentityFiles: c.IdentityFiles, Preset: c.Name,
+	}
+}
+
+// PresetFrom converts a target into a preset (secrets are dropped).
+func PresetFrom(name string, t Target) connections.Connection {
+	return connections.Connection{
+		Name: name, Address: t.Address, Insecure: t.Insecure, SkipVerify: t.SkipVerify,
+		CAFile: t.CAFile, CertFile: t.CertFile, KeyFile: t.KeyFile, ServerName: t.ServerName,
+		Username: t.Username, TimeoutSec: t.TimeoutSec, Jumps: t.Jumps, IdentityFiles: t.IdentityFiles,
+	}
 }
 
 // Options converts the target into connection options.
@@ -60,6 +86,10 @@ func (t Target) Options() conn.Options {
 // Session is an open connection.
 type Session struct {
 	ID           string            `json:"id"`
+	Label        string            `json:"label"`            // preset name or address
+	Preset       string            `json:"preset,omitempty"` // saved connection name
+	YangDirs     []string          `json:"yangDirs,omitempty"`
+	Paths        []string          `json:"paths,omitempty"` // saved paths of the preset
 	Address      string            `json:"address"`
 	Jumps        []string          `json:"jumps,omitempty"`
 	Hops         []string          `json:"hops,omitempty"`
@@ -74,23 +104,48 @@ type Session struct {
 type Service struct {
 	Log *slog.Logger
 
+	// Presets are the saved connections.
+	Presets *connections.Store
+
 	mu       sync.Mutex
 	sessions map[string]*Session
 	tree     *schema.Tree
+	trees    map[string]*schema.Tree // by folder set, so switching devices is instant
 }
 
-// New creates a service.
+// New creates a service with the default presets store.
 func New(log *slog.Logger) *Service {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Service{Log: log, sessions: map[string]*Session{}}
+	return &Service{Log: log, sessions: map[string]*Session{}, trees: map[string]*schema.Tree{},
+		Presets: connections.Open("")}
 }
 
-// Connect opens a session.
+// Connect opens a session. Several sessions can be open at once. A missing
+// username or password is taken from the environment: the preset's passwordEnv,
+// else GNMI_USERNAME and GNMI_PASSWORD.
 func (s *Service) Connect(ctx context.Context, t Target) (*Session, error) {
 	start := time.Now()
-	s.Log.Info("connect", "address", t.Address, "jumps", t.Jumps, "insecure", t.Insecure, "skipVerify", t.SkipVerify)
+	var preset *connections.Connection
+	if t.Preset != "" {
+		p, err := s.Presets.Get(t.Preset)
+		if err != nil {
+			return nil, err
+		}
+		preset = p
+	}
+	if t.Username == "" {
+		t.Username = os.Getenv("GNMI_USERNAME")
+	}
+	if t.Password == "" {
+		env := "GNMI_PASSWORD"
+		if preset != nil && preset.PasswordEnv != "" {
+			env = preset.PasswordEnv
+		}
+		t.Password = os.Getenv(env)
+	}
+	s.Log.Info("connect", "address", t.Address, "preset", t.Preset, "jumps", t.Jumps, "insecure", t.Insecure, "skipVerify", t.SkipVerify)
 	c, caps, err := conn.Dial(ctx, t.Options())
 	if err != nil {
 		ae := apperr.As(err)
@@ -99,9 +154,19 @@ func (s *Service) Connect(ctx context.Context, t Target) (*Session, error) {
 	}
 	cp := conn.ConvertCapabilities(caps)
 	sess := &Session{
-		ID: newID(), Address: t.Address, Jumps: t.Jumps, Capabilities: cp,
+		ID: newID(), Label: t.Address, Address: t.Address, Jumps: t.Jumps, Capabilities: cp,
 		Encoding: conn.PreferredEncoding(cp, ""), ConnectMs: time.Since(start).Milliseconds(),
 		Opened: time.Now(), conn: c,
+	}
+	if preset != nil {
+		sess.Label, sess.Preset, sess.YangDirs, sess.Paths = preset.Name, preset.Name, preset.YangDirs, preset.Paths
+		if preset.Encoding != "" {
+			sess.Encoding = preset.Encoding
+		}
+		if err := s.Presets.Touch(preset.Name, connections.Seen{Time: time.Now().UTC().Truncate(time.Second),
+			GNMIVersion: cp.GNMIVersion, Encodings: cp.Encodings, Models: len(cp.Models)}); err != nil {
+			s.Log.Warn("could not update preset", "preset", preset.Name, "error", err.Error())
+		}
 	}
 	for _, h := range c.Hops {
 		sess.Hops = append(sess.Hops, h.String())
@@ -109,7 +174,7 @@ func (s *Service) Connect(ctx context.Context, t Target) (*Session, error) {
 	s.mu.Lock()
 	s.sessions[sess.ID] = sess
 	s.mu.Unlock()
-	s.Log.Info("connected", "session", sess.ID, "address", t.Address, "models", len(cp.Models), "encodings", cp.Encodings, "ms", sess.ConnectMs)
+	s.Log.Info("connected", "session", sess.ID, "address", t.Address, "preset", t.Preset, "models", len(cp.Models), "encodings", cp.Encodings, "ms", sess.ConnectMs)
 	return sess, nil
 }
 
@@ -200,6 +265,15 @@ func (s *Service) Generate(id string, t *Target, r generate.Request) (*generate.
 
 // LoadSchema loads YANG from directories and makes it the current schema.
 func (s *Service) LoadSchema(dirs []string, opt schema.LoadOptions) (*schema.Tree, error) {
+	key := strings.Join(dirs, "\x00") + "\x01" + strings.Join(opt.Modules, "\x00")
+	s.mu.Lock()
+	if t, ok := s.trees[key]; ok && !opt.Force {
+		s.tree = t
+		s.mu.Unlock()
+		s.Log.Info("schema from cache", "dirs", dirs)
+		return t, nil
+	}
+	s.mu.Unlock()
 	s.Log.Info("load schema", "dirs", dirs, "modules", opt.Modules)
 	t, err := schema.Load(dirs, opt)
 	if err != nil {
@@ -209,6 +283,7 @@ func (s *Service) LoadSchema(dirs []string, opt schema.LoadOptions) (*schema.Tre
 	}
 	s.mu.Lock()
 	s.tree = t
+	s.trees[key] = t
 	s.mu.Unlock()
 	s.Log.Info("schema loaded", "files", t.Files, "modules", len(t.Modules), "nodes", len(t.Nodes), "ms", t.LoadMs, "warnings", len(t.Warnings))
 	return t, nil

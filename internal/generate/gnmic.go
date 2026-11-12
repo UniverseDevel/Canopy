@@ -85,10 +85,26 @@ func Gnmic(r Request) (*Output, error) {
 		}
 		last := r.Hops[len(r.Hops)-1]
 		ssh := fmt.Sprintf("ssh -N -L %d:%s ", lp, net.JoinHostPort(host, port))
+		if r.Target.SSH != nil {
+			for _, f := range r.Target.SSH.IdentityFiles {
+				ssh += "-i " + q(f) + " "
+			}
+		}
 		if len(jumps) > 0 {
 			ssh += "-J " + strings.Join(jumps, ",") + " "
 		}
-		ssh += hopString(last)
+		// -J accepts user@host:port, but the destination needs -p.
+		if last.Port != 0 && last.Port != 22 {
+			ssh += "-p " + strconv.Itoa(last.Port) + " "
+		}
+		dest := last.Host
+		if last.Alias != "" {
+			dest = last.Alias
+		}
+		if last.User != "" {
+			dest = last.User + "@" + dest
+		}
+		ssh += dest
 		out.Commands = append(out.Commands, Command{
 			Title: "Tunnel (keep running in its own terminal)",
 			Text:  ssh,
@@ -184,7 +200,11 @@ func envRef(shell, name string) string {
 
 // quoter returns a function that quotes an argument when needed.
 func quoter(shell string) func(string) string {
-	return func(s string) string {
+	var q func(string) string
+	q = func(s string) string {
+		if strings.HasPrefix(s, "~/") && len(s) > 2 {
+			return "~/" + q(s[2:]) // keep ~ unquoted so the shell expands it
+		}
 		if s != "" && !strings.ContainsAny(s, " \t'\"$`*?[]{}()|&;<>!#~\\") {
 			return s
 		}
@@ -193,6 +213,7 @@ func quoter(shell string) func(string) string {
 		}
 		return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 	}
+	return q
 }
 
 // wrap joins args, breaking lines before flags when the command is long.

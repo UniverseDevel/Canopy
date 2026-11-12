@@ -1,10 +1,10 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Lab - connect" type="GoApplicationRunConfiguration" factoryName="Go Application">
+  <configuration default="false" name="Lab - list connections" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="Canopy" />
     <working_directory value="$PROJECT_DIR$" />
-    <parameters value="connect -a 127.0.0.1:57400 --skip-verify --non-interactive" />
+    <parameters value="conn list" />
     <envs>
-      <env name="GNMI_USERNAME" value="admin" />
+      <env name="CANOPY_CONNECTIONS" value="$PROJECT_DIR$/lab/connections.yaml" />
       <env name="GNMI_PASSWORD" value="NokiaSrl1!" />
     </envs>
     <kind value="PACKAGE" />

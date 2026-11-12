@@ -11,6 +11,7 @@ import (
 	"github.com/UniverseDevel/Canopy/internal/app"
 	"github.com/UniverseDevel/Canopy/internal/apperr"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type targetFlags struct {
@@ -28,10 +29,15 @@ type targetFlags struct {
 	identities     []string
 	acceptHostKeys []string
 	saveHostKey    bool
+
+	preset string
+	fs     *pflag.FlagSet
 }
 
 func addTargetFlags(cmd *cobra.Command, f *targetFlags) {
 	fl := cmd.Flags()
+	f.fs = fl
+	fl.StringVarP(&f.preset, "conn", "c", "", "use a saved connection (see 'canopy conn list'); other flags override its settings")
 	fl.StringVarP(&f.address, "target", "a", "", "gNMI target host:port")
 	fl.BoolVar(&f.insecure, "insecure", false, "plaintext gRPC (no TLS)")
 	fl.BoolVar(&f.skipVerify, "skip-verify", false, "TLS without certificate verification")
@@ -50,15 +56,53 @@ func addTargetFlags(cmd *cobra.Command, f *targetFlags) {
 // target builds the connection request, reading secrets from the environment or a
 // prompt. needPassword is false for commands that don't connect.
 func (g *globals) target(f *targetFlags, needPassword bool) (app.Target, error) {
-	if f.address == "" {
-		return app.Target{}, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "--target is required")
+	var t app.Target
+	passwordEnv := "GNMI_PASSWORD"
+	set := func(name string) bool { return f.preset == "" || f.fs.Changed(name) }
+	if f.preset != "" {
+		p, err := g.presets().Get(f.preset)
+		if err != nil {
+			return t, err
+		}
+		t = app.TargetFrom(p)
+		if t.TimeoutSec == 0 {
+			t.TimeoutSec = int(f.timeout / time.Second)
+		}
+		if p.PasswordEnv != "" {
+			passwordEnv = p.PasswordEnv
+		}
 	}
-	t := app.Target{
-		Address: f.address, Insecure: f.insecure, SkipVerify: f.skipVerify,
-		CAFile: f.caFile, CertFile: f.certFile, KeyFile: f.keyFile, ServerName: f.serverName,
-		Username: f.username, TimeoutSec: int(f.timeout / time.Second),
-		Jumps: f.jumps, IdentityFiles: f.identities, AcceptHostKeys: f.acceptHostKeys, SaveHostKeys: f.saveHostKey,
-		Passphrase: os.Getenv("CANOPY_SSH_PASSPHRASE"), SSHPassword: os.Getenv("CANOPY_SSH_PASSWORD"),
+	if set("target") {
+		t.Address = f.address
+	}
+	if set("insecure") || set("skip-verify") {
+		t.Insecure, t.SkipVerify = f.insecure, f.skipVerify
+	}
+	if set("tls-ca") {
+		t.CAFile = f.caFile
+	}
+	if set("tls-cert") || set("tls-key") {
+		t.CertFile, t.KeyFile = f.certFile, f.keyFile
+	}
+	if set("tls-server-name") {
+		t.ServerName = f.serverName
+	}
+	if set("username") {
+		t.Username = f.username
+	}
+	if set("timeout") {
+		t.TimeoutSec = int(f.timeout / time.Second)
+	}
+	if set("jump") {
+		t.Jumps = f.jumps
+	}
+	if set("ssh-identity") {
+		t.IdentityFiles = f.identities
+	}
+	t.AcceptHostKeys, t.SaveHostKeys = f.acceptHostKeys, f.saveHostKey
+	t.Passphrase, t.SSHPassword = os.Getenv("CANOPY_SSH_PASSPHRASE"), os.Getenv("CANOPY_SSH_PASSWORD")
+	if t.Address == "" {
+		return t, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "--target or --conn is required")
 	}
 	if t.TimeoutSec == 0 {
 		t.TimeoutSec = 1
@@ -69,7 +113,7 @@ func (g *globals) target(f *targetFlags, needPassword bool) (app.Target, error) 
 	if !needPassword {
 		return t, nil
 	}
-	t.Password = os.Getenv("GNMI_PASSWORD")
+	t.Password = os.Getenv(passwordEnv)
 	if t.Username == "" && g.interactive() {
 		u, err := g.prompt("Username: ", false)
 		if err != nil {

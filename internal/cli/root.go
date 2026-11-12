@@ -107,7 +107,7 @@ func newRoot(g *globals) *cobra.Command {
 	root.PersistentFlags().BoolVar(&g.nonInteractive, "non-interactive", false, "never prompt (also implied when stdin isn't a terminal)")
 	root.PersistentFlags().StringVar(&g.logLevel, "log-level", "", "log level: debug, info, warn, error")
 	root.PersistentFlags().StringVar(&g.logFile, "log-file", "", "write structured JSON logs to this file")
-	root.AddCommand(newVersionCmd(g), newConnectCmd(g), newGetCmd(g), newTreeCmd(g), newGenerateCmd(g), newUICmd(g))
+	root.AddCommand(newVersionCmd(g), newConnCmd(g), newConnectCmd(g), newGetCmd(g), newTreeCmd(g), newGenerateCmd(g), newUICmd(g))
 	return root
 }
 

@@ -105,6 +105,8 @@ type LoadOptions struct {
 	// Modules restricts the modules whose trees are shown; their imports are still
 	// loaded. Empty means every module found.
 	Modules []string
+	// Force reloads even if the same folders are cached by the caller.
+	Force bool `json:"force,omitempty"`
 }
 
 // Load reads every .yang file under the given directories (recursively). When a

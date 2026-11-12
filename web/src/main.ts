@@ -1,4 +1,4 @@
-import { api, ApiError, GetResult, NodeDetail, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
+import { api, ApiError, GetResult, NodeDetail, Preset, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
 import { $, append, clear, copyText, h, toast } from "./dom";
 import { Num, stringify } from "./json";
 import { VirtualList } from "./vlist";
@@ -6,7 +6,12 @@ import { VirtualList } from "./vlist";
 // ---------- state ----------
 
 const S = {
-  session: null as Session | null,
+  session: null as Session | null, // the active session
+  sessions: [] as Session[],
+  // per-session working state, restored when switching devices
+  perSession: new Map<string, { paths: string; result: GetResult | null }>(),
+  presets: [] as Preset[],
+  preset: "", // preset currently loaded into the form
   schema: null as SchemaSummary | null,
   nodes: new Map<number, SNode>(),
   children: new Map<number, number[]>(), // -1 = roots
@@ -55,15 +60,23 @@ const F = {
 F.tls.value = store.get("tls") || "skip";
 
 const connectBtn = h("button", { class: "primary", onclick: () => connect() }, "Connect");
-const disconnectBtn = h("button", { onclick: () => disconnect(), disabled: true }, "Disconnect");
+const disconnectBtn = h("button", { onclick: () => S.session && disconnect(S.session.id), disabled: true }, "Disconnect");
 const connStatus = h("div", { class: "conn-status" }, "Not connected");
 
+const presetSel = h("select", { title: "Saved connections" }, h("option", { value: "" }, "— new connection —"));
+const presetSave = h("button", { onclick: () => savePreset() }, "Save as…");
+const presetDel = h("button", { onclick: () => deletePreset(), disabled: true }, "Delete");
+const presetInfo = h("div", { class: "muted small preset-info" });
+const sessionsBar = h("div", { class: "sessions" });
+
 const connPanel = h("section", { class: "conn-panel" },
+  h("div", { class: "row" }, h("strong", {}, "Saved"), presetSel, presetSave, presetDel, presetInfo),
   h("div", { class: "conn-grid" },
     field("Target", F.address), field("Security", F.tls), field("CA file", F.ca), field("TLS server name", F.serverName),
     field("Username", F.username), field("Password", F.password), field("SSH jump hosts", F.jumps, "comma-separated chain"),
     field("SSH key file", F.identity), field("Timeout (s)", F.timeout)),
-  h("div", { class: "conn-actions" }, connectBtn, disconnectBtn, connStatus));
+  h("div", { class: "conn-actions" }, connectBtn, disconnectBtn, connStatus),
+  sessionsBar);
 
 const yangInput = h("input", { placeholder: "YANG folder(s), separated by ;", value: store.get("yang") });
 const loadBtn = h("button", { onclick: () => loadSchema() }, "Load");
@@ -150,7 +163,13 @@ function mount() {
   }
   yangInput.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") loadSchema(); });
   api.info().then((i) => ($("#build").textContent = `${i.build.version} ${i.build.commit.slice(0, 8)}`)).catch(() => {});
-  api.schema().then((s) => schemaLoaded(s)).catch(() => {});
+  api.schema().then((s) => { if (s) schemaLoaded(s); }).catch(() => {});
+  presetSel.addEventListener("change", () => applyPreset(presetSel.value));
+  // Editing the address detaches the form from the preset.
+  F.address.addEventListener("input", () => {
+    if (S.preset) { S.preset = ""; presetSel.value = ""; showPresetInfo(); }
+  });
+  loadPresets();
   renderFooter();
 }
 
@@ -186,7 +205,145 @@ function target(): Target {
     timeoutSec: Number(F.timeout.value) || 10,
     jumps: jumps.length ? jumps : undefined,
     identityFiles: F.identity.value.trim() ? [F.identity.value.trim()] : undefined,
+    preset: S.preset || undefined,
   };
+}
+
+// ---------- saved connections ----------
+
+async function loadPresets(select?: string) {
+  try {
+    S.presets = await api.presets();
+  } catch (e) {
+    presetInfo.textContent = errText(e);
+    return;
+  }
+  clear(presetSel);
+  presetSel.append(h("option", { value: "" }, "— new connection —"),
+    ...S.presets.map((p) => h("option", { value: p.name }, p.name + (p.readOnly ? "  (lab/team)" : ""))));
+  presetSel.value = select ?? S.preset;
+  showPresetInfo();
+}
+
+function showPresetInfo() {
+  const p = S.presets.find((x) => x.name === S.preset);
+  presetDel.disabled = !p || !!p.readOnly;
+  clear(presetInfo);
+  if (!p) return;
+  const parts = [p.description ?? ""];
+  if (p.tags?.length) parts.push(p.tags.join(", "));
+  if (p.lastSeen) parts.push(`last connected ${new Date(p.lastSeen.time).toLocaleString()} (${p.lastSeen.models} models, gNMI ${p.lastSeen.gnmiVersion})`);
+  if (p.readOnly) parts.push(`read-only, from ${p.source}`);
+  if (p.passwordEnv) parts.push(`password from $${p.passwordEnv}`);
+  presetInfo.textContent = parts.filter(Boolean).join(" · ");
+  presetInfo.title = p.source ?? "";
+}
+
+// applyPreset fills the form from a saved connection.
+function applyPreset(name: string) {
+  S.preset = name;
+  const p = S.presets.find((x) => x.name === name);
+  showPresetInfo();
+  if (!p) return;
+  F.address.value = p.address;
+  F.tls.value = p.insecure ? "plain" : p.skipVerify ? "skip" : "verify";
+  F.ca.value = p.caFile ?? "";
+  F.serverName.value = p.serverName ?? "";
+  F.username.value = p.username ?? "";
+  F.password.value = "";
+  F.jumps.value = (p.jumps ?? []).join(", ");
+  F.identity.value = (p.identityFiles ?? [])[0] ?? "";
+  F.timeout.value = String(p.timeoutSec || 10);
+  if (p.yangDirs?.length) yangInput.value = p.yangDirs.join("; ");
+}
+
+async function savePreset() {
+  const t = target();
+  if (!t.address) { toast("Enter a target address first", "err"); return; }
+  const existing = S.presets.find((x) => x.name === S.preset && !x.readOnly);
+  const name = h("input", { value: existing?.name ?? "", placeholder: "name, e.g. lab-leaf1" });
+  const desc = h("input", { value: existing?.description ?? "", placeholder: "description (optional)" });
+  const tags = h("input", { value: (existing?.tags ?? []).join(", "), placeholder: "tags, comma-separated (optional)" });
+  const pwEnv = h("input", { value: existing?.passwordEnv ?? "", placeholder: "GNMI_PASSWORD" });
+  const withCtx = h("input", { type: "checkbox", checked: true });
+  const body = h("div", { class: "form" },
+    field("Name", name), field("Description", desc), field("Tags", tags),
+    field("Password environment variable", pwEnv, "Passwords are never saved. Leave empty to use GNMI_PASSWORD, or type it in the form."),
+    h("label", { class: "check" }, withCtx, " Also save the YANG folders, marked paths and encoding"));
+  if ((await modal(existing ? `Update “${existing.name}”` : "Save connection", body, [{ label: "Save", primary: true, value: "save" }])) !== "save") return;
+  const p: Preset = {
+    name: name.value.trim(), description: desc.value.trim() || undefined,
+    tags: tags.value.split(",").map((s) => s.trim()).filter(Boolean),
+    address: t.address, insecure: t.insecure, skipVerify: t.skipVerify, caFile: t.caFile, serverName: t.serverName,
+    username: t.username, passwordEnv: pwEnv.value.trim() || undefined, timeoutSec: t.timeoutSec,
+    jumps: t.jumps, identityFiles: t.identityFiles,
+  };
+  if (withCtx.checked) {
+    p.yangDirs = yangInput.value.split(";").map((s) => s.trim()).filter(Boolean);
+    p.paths = markedPaths();
+    p.encoding = encSel.value || undefined;
+  }
+  try {
+    const saved = await api.savePreset(p);
+    S.preset = saved.name;
+    await loadPresets(saved.name);
+    toast(`Saved “${saved.name}”`);
+  } catch (e) {
+    toast(errText(e), "err");
+  }
+}
+
+async function deletePreset() {
+  const p = S.presets.find((x) => x.name === S.preset);
+  if (!p || p.readOnly) return;
+  if ((await modal(`Delete “${p.name}”?`, h("p", {}, "The saved connection is removed. Open sessions stay connected."), [{ label: "Delete", primary: true, value: "del" }])) !== "del") return;
+  try {
+    await api.deletePreset(p.name);
+    S.preset = "";
+    await loadPresets("");
+  } catch (e) {
+    toast(errText(e), "err");
+  }
+}
+
+// ---------- sessions ----------
+
+function renderSessions() {
+  clear(sessionsBar);
+  if (!S.sessions.length) return;
+  sessionsBar.append(h("span", { class: "muted small" }, "Open:"));
+  for (const s of S.sessions) {
+    const chip = h("span", { class: "chip" + (S.session?.id === s.id ? " active" : ""), title: `${s.address}${s.hops?.length ? " via " + s.hops.join(" → ") : ""}` },
+      h("span", { class: "dot ok" }), s.label,
+      h("button", { class: "x", title: "Disconnect", onclick: (e: Event) => { e.stopPropagation(); disconnect(s.id); } }, "×"));
+    chip.addEventListener("click", () => activate(s.id));
+    sessionsBar.append(chip);
+  }
+}
+
+// activate makes a session the active one, restoring its paths, result and models.
+async function activate(id: string) {
+  const s = S.sessions.find((x) => x.id === id);
+  if (!s) return;
+  if (S.session && S.session.id !== id) {
+    S.perSession.set(S.session.id, { paths: pathsArea.value, result: S.result });
+  }
+  S.session = s;
+  const st = S.perSession.get(id);
+  pathsArea.value = st?.paths ?? (s.paths ?? []).join("\n");
+  S.result = st?.result ?? null;
+  if (S.result) buildData(S.result.data);
+  resultMeta.textContent = "";
+  renderData();
+  connected();
+  if (s.yangDirs?.length) {
+    const want = s.yangDirs.join("; ");
+    if (yangInput.value !== want || !S.schema) {
+      yangInput.value = want;
+      await loadSchema();
+    }
+  }
+  refreshTree();
 }
 
 async function connect() {
@@ -203,9 +360,10 @@ async function connect() {
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
         const s = await api.connect(t);
-        if (S.session) api.disconnect(S.session.id).catch(() => {});
-        S.session = s;
-        connected();
+        S.sessions.push(s);
+        F.password.value = "";
+        await activate(s.id);
+        if (s.preset) loadPresets(); // refresh "last connected"
         return;
       } catch (e) {
         if (!(e instanceof ApiError)) throw e;
@@ -246,23 +404,32 @@ async function connect() {
 function connected() {
   const s = S.session!;
   connStatus.className = "conn-status ok";
-  connStatus.textContent = `Connected to ${s.address}${s.hops?.length ? " via " + s.hops.join(" → ") : ""} · gNMI ${s.capabilities.gnmiVersion} · ${s.capabilities.models.length} models · ${s.connectMs} ms`;
+  connStatus.textContent = `Active: ${s.label}${s.label !== s.address ? ` (${s.address})` : ""}${s.hops?.length ? " via " + s.hops.join(" → ") : ""} · gNMI ${s.capabilities.gnmiVersion} · ${s.capabilities.models.length} models · ${s.connectMs} ms`;
   disconnectBtn.disabled = false;
   clear(encSel);
   encSel.append(h("option", { value: "" }, `encoding: auto (${s.encoding})`),
     ...s.capabilities.encodings.map((e) => h("option", { value: e }, e)));
   renderCaps();
+  renderSessions();
   renderFooter();
 }
 
-async function disconnect() {
-  if (!S.session) return;
-  await api.disconnect(S.session.id).catch(() => {});
-  S.session = null;
-  connStatus.className = "conn-status";
-  connStatus.textContent = "Not connected";
-  disconnectBtn.disabled = true;
-  renderCaps();
+async function disconnect(id: string) {
+  await api.disconnect(id).catch(() => {});
+  S.sessions = S.sessions.filter((x) => x.id !== id);
+  S.perSession.delete(id);
+  if (S.session?.id === id) {
+    S.session = null;
+    const next = S.sessions[S.sessions.length - 1];
+    if (next) { await activate(next.id); return; }
+    S.result = null;
+    renderData();
+    connStatus.className = "conn-status";
+    connStatus.textContent = "Not connected";
+    disconnectBtn.disabled = true;
+    renderCaps();
+  }
+  renderSessions();
   renderFooter();
 }
 
@@ -293,7 +460,7 @@ function renderFooter() {
   clear(footer);
   const s = S.session;
   append(footer,
-    h("span", { class: s ? "dot ok" : "dot" }), s ? `${s.address}` : "not connected",
+    h("span", { class: s ? "dot ok" : "dot" }), s ? `${s.label} · ${S.sessions.length} open` : "not connected",
     h("span", { class: "sep" }),
     S.schema ? `${S.schema.modules.length} modules · ${S.schema.nodes.toLocaleString()} nodes · loaded in ${S.schema.loadMs} ms` : "no models",
     S.schema?.warnings?.length ? h("button", { class: "link", onclick: () => showWarnings() }, `${S.schema.warnings.length} warnings`) : null);

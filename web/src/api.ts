@@ -19,8 +19,18 @@ export class ApiError extends Error {
 export interface Model { name: string; organization?: string; version?: string }
 export interface Capabilities { gnmiVersion: string; encodings: string[]; models: Model[] }
 export interface Session {
-  id: string; address: string; jumps?: string[]; hops?: string[];
+  id: string; label: string; preset?: string; yangDirs?: string[]; paths?: string[];
+  address: string; jumps?: string[]; hops?: string[];
   capabilities: Capabilities; encoding: string; connectMs: number;
+}
+
+export interface Preset {
+  name: string; description?: string; tags?: string[];
+  address: string; insecure?: boolean; skipVerify?: boolean; caFile?: string; certFile?: string; keyFile?: string;
+  serverName?: string; username?: string; passwordEnv?: string; timeoutSec?: number;
+  jumps?: string[]; identityFiles?: string[]; encoding?: string; yangDirs?: string[]; paths?: string[];
+  lastSeen?: { time: string; gnmiVersion?: string; encodings?: string[]; models: number };
+  source?: string; readOnly?: boolean;
 }
 
 export interface TypeInfo {
@@ -56,7 +66,7 @@ export interface Target {
   address: string; insecure?: boolean; skipVerify?: boolean; caFile?: string; certFile?: string; keyFile?: string;
   serverName?: string; username?: string; password?: string; timeoutSec?: number;
   jumps?: string[]; identityFiles?: string[]; passphrases?: Record<string, string>; sshPassword?: string;
-  acceptHostKeys?: string[]; saveHostKeys?: boolean;
+  acceptHostKeys?: string[]; saveHostKeys?: boolean; preset?: string;
 }
 
 export interface GenCommand { title: string; text: string; note?: string }
@@ -86,7 +96,10 @@ export const api = {
   get: (session: string, paths: string[], type: string, encoding: string) =>
     call<GetResult>("POST", "/api/get", { session, paths, type, encoding }, true),
   generate: (req: Record<string, unknown>) => call<GenOutput>("POST", "/api/generate", req),
-  loadSchema: (dirs: string[]) => call<SchemaSummary>("POST", "/api/schema/load", { dirs }),
+  loadSchema: (dirs: string[], force = false) => call<SchemaSummary>("POST", "/api/schema/load", { dirs, force }),
+  presets: () => call<Preset[]>("GET", "/api/connections"),
+  savePreset: (p: Preset) => call<Preset>("PUT", "/api/connections", p),
+  deletePreset: (name: string) => call("DELETE", `/api/connections?name=${encodeURIComponent(name)}`),
   schema: () => call<SchemaSummary>("GET", "/api/schema"),
   children: (id: number) => call<SNode[]>("GET", `/api/schema/children?id=${id}`),
   node: (id: number) => call<NodeDetail>("GET", `/api/schema/node?id=${id}`),

@@ -16,3 +16,8 @@ web/node_modules/
 
 # Downloaded YANG models for local testing
 lab/models/
+
+# Lab CA exported by lab/operator/lab.sh
+lab/.tls/
+# Lab SSH key created by lab/operator/lab.sh jumphost
+lab/.ssh/
