@@ -1,0 +1,36 @@
+# Device `leaf1` for the local SR Linux lab node (lab/canopy-dev.clab.yml).
+#
+# All of network-operator's Tilt samples target `deviceRef: leaf1`, so with this Device
+# the sample buttons in the Tilt UI configure the real SR Linux node.
+#
+# Do NOT trigger Tilt's own `leaf1` resource: it would overwrite this Device with the
+# sample (address 192.168.5.2:9339, OpenConfig provider, no TLS).
+#
+# The CA secret is created from the lab's generated CA by `lab.sh device`.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: leaf1-basic-auth   # not `secret-basic-auth`, which Tilt's leaf1 sample owns
+  namespace: default
+type: kubernetes.io/basic-auth
+stringData:
+  username: admin
+  password: NokiaSrl1!     # SR Linux published lab default
+---
+apiVersion: networking.metal.ironcore.dev/v1alpha1
+kind: Device
+metadata:
+  name: leaf1
+  namespace: default
+  labels:
+    networking.metal.ironcore.dev/site: canopy-dev
+spec:
+  provider: srlinux.nokia.networking.metal.ironcore.dev
+  endpoint:
+    address: 172.20.20.2:57400   # srl1 on the clab network (routed from the kind node)
+    secretRef:
+      name: leaf1-basic-auth
+    tls:
+      ca:
+        name: lab-ca
+        key: ca.crt

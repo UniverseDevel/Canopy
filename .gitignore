@@ -1,0 +1,14 @@
+# Never commit the pseudonym mapping used for sanitizing test data
+testing/.redaction-map.local.yaml
+testing/**/*.local.*
+
+# Containerlab runtime folders
+lab/clab-*/
+lab/.*.clab.yml.bak
+
+# Build output
+/bin/
+/dist/
+
+# IDE
+.idea/

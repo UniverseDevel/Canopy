@@ -1,0 +1,45 @@
+# Device data pack manifest. One per pack folder:
+# testing/devicedata/<platform>/<version>/<YYYYMMDD>-<dev-pseudonym>/manifest.yaml
+pack: YYYYMMDD-dev-01
+request: "NNNN"                # or "none"
+collected: YYYY-MM-DDTHH:MM:SSZ
+collector:
+  tool: gnmic                  # gnmic | canopy
+  version: <tool version>
+device:
+  id: dev-01                   # pseudonym
+  vendor: <cisco | nokia | arista | juniper | ...>
+  os: <nxos | iosxr | srlinux | eos | junos | ...>
+  version: <exact version string as the device reports it>
+  version_source: <capabilities:Cisco-NX-OS-device@2024-03-26 | gnmi-get:/system/state/software-version | human>
+  hardware: <model/platform name, e.g. N9K-C93180YC-FX, or "virtual">
+  kind: <lab | production | containerlab>
+access:
+  path: <direct | jump-host x1>
+  tls: <plaintext | tls-skip-verify | tls-ca | mtls>
+  gnmi_port: <port>
+gnmi:
+  encodings_advertised: []     # from capabilities
+  encodings_working: []        # from encodings.yaml
+  origin_notes: <e.g. "openconfig paths work without origin; native need origin=native">
+files:                         # every file in the pack, with what it is
+  - capabilities.json
+  - version.yaml
+  - encodings.yaml
+  - errors.yaml
+  - subscribe-once.yaml
+  - notes.md
+  # - get/_system.config.json
+  # - get/_system.state.json
+skipped:                       # anything requested but not collected, with reason
+  # - path: /network-instances/network-instance[name=*]/afts
+  #   reason: excluded (forwarding table)
+sanitized: true
+redactions:
+  hostname: 0
+  ipv4: 0
+  ipv6: 0
+  secret: 0
+  username: 0
+  serial_mac: 0
+  org_text: 0

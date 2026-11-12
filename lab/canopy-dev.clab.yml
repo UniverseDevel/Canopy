@@ -1,0 +1,17 @@
+# Local development lab for Canopy: one Nokia SR Linux node.
+# Runs in WSL 2 (Ubuntu 24.04) with Docker and Containerlab:
+#   containerlab deploy -t lab/canopy-dev.clab.yml
+#   containerlab destroy -t lab/canopy-dev.clab.yml
+#
+# gNMI (TLS, self-signed) is published on the WSL host port 57400, which WSL forwards
+# to localhost on Windows, so Canopy on Windows connects to 127.0.0.1:57400.
+# Credentials are SR Linux's published lab defaults (admin / NokiaSrl1!).
+name: canopy-dev
+
+topology:
+  nodes:
+    srl1:
+      kind: nokia_srlinux
+      image: ghcr.io/nokia/srlinux:26.7.1   # same version as network-operator's lab skill
+      ports:
+        - 57400:57400
