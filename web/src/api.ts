@@ -22,6 +22,7 @@ export interface Session {
   id: string; label: string; preset?: string; yangDirs?: string[]; paths?: string[]; models?: string;
   address: string; jumps?: string[]; hops?: string[];
   capabilities: Capabilities; encoding: string; connectMs: number;
+  device?: { namespace: string; name: string; provider: string };
 }
 
 export interface Preset {
@@ -150,4 +151,24 @@ export const snapApi = {
   diff: (a: string, b: string, session: string, ignore: string[]) =>
     call<DiffResult>("POST", "/api/snapshots/diff", { a, b, session, ignore }, true),
   remove: (name: string) => call("DELETE", `/api/snapshots?name=${encodeURIComponent(name)}`),
+};
+
+export interface OpOptions { kubeconfig?: string; context?: string; jumps?: string[]; identityFiles?: string[]; operatorRepo?: string; timeoutSec?: number }
+export interface Condition { type: string; status: string; reason?: string; message?: string }
+export interface K8sDevice { namespace: string; name: string; provider: string; address: string; phase?: string; paused: boolean; ready: string; conditions: Condition[]; tls: boolean }
+export interface K8sResource { kind: string; resource: string; namespace: string; name: string; ready: string; paused: boolean; conditions: Condition[]; spec?: Record<string, unknown>; generation: number; observedGeneration: number }
+export interface VerifyLeaf { path: string; expected?: unknown; actual?: unknown; status: string; from?: string }
+export interface Verification { resource: K8sResource; device: string; fixture: string; mode: string; verdict: string; reasons: string[]; leaves: VerifyLeaf[]; alternates?: string[]; elapsedMs: number }
+
+export const opApi = {
+  info: () => call<{ defaults: OpOptions; contexts?: string[]; current?: string; error?: string }>("GET", "/api/operator/info"),
+  devices: (options: OpOptions, namespace = "") => call<{ context: string; devices: K8sDevice[] }>("POST", "/api/operator/devices", { options, namespace }),
+  connect: (options: OpOptions, namespace: string, name: string, target: Partial<Target>) =>
+    call<Session>("POST", "/api/operator/connect", { options, namespace, name, target }),
+  resources: (options: OpOptions, namespace: string, device: string) =>
+    call<K8sResource[]>("POST", "/api/operator/resources", { options, namespace, device }),
+  pause: (options: OpOptions, kind: string, namespace: string, name: string, paused: boolean) =>
+    call<{ paused: boolean; condition: string }>("POST", "/api/operator/pause", { options, kind, namespace, name, paused, waitSec: 30 }),
+  verify: (options: OpOptions, session: string, kind: string, namespace: string, name: string, deleted = false) =>
+    call<Verification>("POST", "/api/operator/verify", { options, session, kind, namespace, name, deleted }, true),
 };

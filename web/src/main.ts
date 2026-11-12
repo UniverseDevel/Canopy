@@ -1,6 +1,7 @@
-import { api, ApiError, GetResult, MatchReport, modelsApi, ModelSource, reportApi, NodeDetail, Preset, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
+import { api, ApiError, GetResult, MatchReport, modelsApi, ModelSource, opApi, OpOptions, reportApi, NodeDetail, Preset, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
 import { openConfigDialog } from "./config";
 import { snapshotsTab } from "./snapshots";
+import { operatorTab } from "./operator";
 import { $, append, clear, copyText, field, h, modal, toast } from "./dom";
 import { Num, stringify } from "./json";
 import { VirtualList } from "./vlist";
@@ -43,12 +44,18 @@ function errText(e: unknown): string {
 
 
 const deviceList = h("div", { class: "devices" });
+const clusterList = h("div", { class: "devices cluster" });
+const clusterInfo = h("div", { class: "muted small cluster-info" }, "not loaded");
 // Full-height device column on the far left, like vertical tabs.
 const devicePanel = h("aside", { class: "device-panel" },
   h("div", { class: "brand-row" }, h("div", { class: "brand" }, "Canopy"), h("div", { class: "muted small", id: "build" })),
   h("button", { class: "primary connect-new", onclick: () => openDeviceDialog() }, "+ Connect device"),
   h("div", { class: "muted small section-label" }, "Devices"),
-  deviceList);
+  deviceList,
+  h("div", { class: "row between cluster-head" }, h("div", { class: "muted small section-label" }, "Cluster"),
+    h("div", { class: "row" }, h("button", { class: "small icon", title: "Reload Devices", onclick: () => loadCluster() }, "↻"),
+      h("button", { class: "small icon", title: "Cluster settings", onclick: () => clusterSettings() }, "⚙"))),
+  clusterInfo, clusterList);
 const activeLabel = h("div", { class: "muted small active-label" }, "No device connected");
 let modelSources: ModelSource[] = [];
 const modelSrcSel = h("select", { title: "Model source" }, h("option", { value: "" }, "Model source…"));
@@ -98,7 +105,8 @@ const genOut = h("div", { class: "gen-out" });
 const capsHost = h("div", { class: "caps" }, h("p", { class: "muted" }, "Connect to see capabilities."));
 const footer = h("footer", {});
 
-const tabs = ["Data", "Commands", "Snapshots", "Capabilities"] as const;
+const tabs = ["Data", "Commands", "Snapshots", "Operator", "Capabilities"] as const;
+const opTab = operatorTab({ session: () => S.session, options: () => opOptions() });
 const snaps = snapshotsTab({ session: () => S.session, paths: () => markedPaths(), type: () => typeSel.value });
 type Tab = typeof tabs[number];
 const tabBar = h("div", { class: "tabs" });
@@ -125,6 +133,7 @@ const tabBodies: Record<Tab, HTMLElement> = {
       h("button", { class: "primary", onclick: () => generate() }, "Generate")),
     genOut),
   Snapshots: h("div", { class: "tab-body" }, snaps.el),
+  Operator: h("div", { class: "tab-body" }, opTab.el),
   Capabilities: h("div", { class: "tab-body" }, capsHost),
 };
 let activeTab: Tab = "Data";
@@ -137,6 +146,7 @@ function showTab(t: Tab) {
   }
   for (const x of tabs) tabBodies[x].hidden = x !== t;
   if (t === "Snapshots") snaps.refresh();
+  if (t === "Operator") opTab.refresh();
 }
 
 // ---------- layout: resizable panes, collapsible connection form ----------
@@ -205,6 +215,8 @@ function mount() {
   api.schema().then((s) => { if (s) schemaLoaded(s); }).catch(() => {});
   initModels();
   loadDevices();
+  opApi.info().then((i) => { opDefaults = i.defaults ?? {}; }).catch(() => {});
+  loadCluster();
   renderFooter();
 }
 
@@ -229,6 +241,7 @@ interface Device {
   state: "off" | "busy" | "on" | "err";
   error?: string;
   password?: string;
+  k8s?: { namespace: string; name: string; ready: string; paused: boolean; provider: string };
 }
 const devices: Device[] = [];
 let selectedKey = "";
@@ -265,7 +278,9 @@ async function loadDevices() {
 
 function renderDevices() {
   clear(deviceList);
-  if (!devices.length) {
+  clear(clusterList);
+  const local = devices.filter((d) => !d.k8s);
+  if (!local.length) {
     deviceList.append(h("p", { class: "muted small pad" }, "No devices yet. Use + Connect device."));
   }
   for (const d of devices) {
@@ -277,7 +292,7 @@ function renderDevices() {
       "aria-label": d.state === "busy" ? "Connecting" : on ? "Disconnect" : "Connect",
       onclick: (e: Event) => { e.stopPropagation(); on ? disconnectDevice(d) : connectDevice(d); },
     }, d.state === "busy" ? "⋯" : on ? "■" : "▶");
-    const edit = h("button", {
+    const edit = d.k8s ? h("span", { class: "icon-spacer" }) : h("button", {
       class: "small icon", title: d.preset?.readOnly ? "Copy into a new device" : "Edit",
       onclick: (e: Event) => { e.stopPropagation(); openDeviceDialog(d); },
     }, "✎");
@@ -286,15 +301,79 @@ function renderDevices() {
       h("span", { class: "dot " + d.state, title: { off: "not connected", busy: "connecting", on: "connected", err: "error" }[d.state] }),
       h("div", { class: "dev-main" },
         h("div", { class: "dev-name" }, d.name, d.preset?.readOnly ? h("span", { class: "tag" }, "lab/team") : null,
-          !d.preset ? h("span", { class: "tag" }, "not saved") : null),
+          !d.preset && !d.k8s ? h("span", { class: "tag" }, "not saved") : null,
+          d.k8s ? h("span", { class: "tag " + (d.k8s.ready === "True" ? "tag-ok" : "tag-warn"), title: "Ready condition of the Device" }, d.k8s.ready === "True" ? "ready" : "not ready") : null,
+          d.k8s?.paused ? h("span", { class: "tag tag-warn" }, "paused") : null),
         h("div", { class: "muted small dev-sub" }, sub),
         d.state === "err" && d.error ? h("div", { class: "err small dev-sub", title: d.error }, d.error) : null),
       edit, btn);
     row.title = [d.description, d.preset?.lastSeen ? `last connected ${new Date(d.preset.lastSeen.time).toLocaleString()}` : ""].filter(Boolean).join("\n");
     row.addEventListener("click", () => selectDevice(d));
     row.addEventListener("dblclick", () => { if (d.state === "off" || d.state === "err") connectDevice(d); });
-    deviceList.append(row);
+    (d.k8s ? clusterList : deviceList).append(row);
   }
+}
+
+// ---------- cluster (operator mode) ----------
+
+let opDefaults: OpOptions = {};
+
+function opOptions(): OpOptions {
+  const o: OpOptions = {};
+  const kc = store.get("op.kubeconfig"), cx = store.get("op.context"), j = store.get("op.jumps"), id = store.get("op.identity");
+  if (kc) o.kubeconfig = kc;
+  if (cx) o.context = cx;
+  if (j) o.jumps = j.split(",").map((s) => s.trim()).filter(Boolean);
+  if (id) o.identityFiles = [id];
+  return o;
+}
+
+async function loadCluster() {
+  clusterInfo.textContent = "Loading Devices…";
+  try {
+    const r = await opApi.devices(opOptions());
+    clusterInfo.textContent = `${r.context} · ${r.devices.length} Device${r.devices.length === 1 ? "" : "s"}`;
+    const old = new Map(devices.filter((d) => d.k8s).map((d) => [d.key, d]));
+    for (const k of old.keys()) devices.splice(devices.findIndex((d) => d.key === k), 1);
+    for (const x of r.devices) {
+      const key = `k:${x.namespace}/${x.name}`;
+      const d = old.get(key) ?? { key, name: "", target: { address: "" }, state: "off" as const };
+      Object.assign(d, {
+        name: `${x.namespace}/${x.name}`, target: { address: x.address, jumps: opOptions().jumps ?? opDefaults.jumps },
+        description: `${x.provider}\nphase ${x.phase ?? "?"}`,
+        k8s: { namespace: x.namespace, name: x.name, ready: x.ready, paused: x.paused, provider: x.provider },
+      });
+      devices.push(d);
+    }
+    // keep connected cluster devices that disappeared from the list
+    for (const [k, d] of old) if (d.session && !devices.some((x) => x.key === k)) devices.push(d);
+  } catch (e) {
+    clusterInfo.textContent = errText(e);
+  }
+  renderDevices();
+}
+
+async function clusterSettings() {
+  let info: Awaited<ReturnType<typeof opApi.info>> | null = null;
+  try { info = await opApi.info(); } catch { /* shown below */ }
+  const d = info?.defaults ?? {};
+  const kc = h("input", { value: store.get("op.kubeconfig"), placeholder: d.kubeconfig || "~/.kube/config" });
+  const cx = h("select", {}, h("option", { value: "" }, `current (${info?.current ?? "?"})`),
+    ...(info?.contexts ?? []).map((c) => h("option", { value: c }, c)));
+  cx.value = store.get("op.context");
+  const j = h("input", { value: store.get("op.jumps"), placeholder: (d.jumps ?? []).join(", ") || "user@jump:22 (optional)" });
+  const id = h("input", { value: store.get("op.identity"), placeholder: (d.identityFiles ?? [])[0] || "key file (optional)" });
+  const r = await modal("Cluster (operator mode)", h("div", { class: "form" },
+    h("p", { class: "muted small" }, "Canopy reads network-operator's Devices from this cluster and connects to them as the operator does (address, credentials and CA from the Device's Secrets). Device addresses are often only reachable from the cluster network; give a jump host for that. Empty fields use the defaults Canopy was started with."),
+    h("div", { class: "form-grid" }, field("Kubeconfig", kc), field("Context", cx), field("SSH jump hosts to devices", j), field("SSH key file", id)),
+    info?.error ? h("p", { class: "err small" }, info.error) : null),
+    [{ label: "Save and reload", primary: true, value: "ok" }]);
+  if (r !== "ok") return;
+  store.set("op.kubeconfig", kc.value.trim());
+  store.set("op.context", cx.value);
+  store.set("op.jumps", j.value.trim());
+  store.set("op.identity", id.value.trim());
+  loadCluster();
 }
 
 async function selectDevice(d: Device) {
@@ -322,7 +401,9 @@ async function connectDevice(d: Device) {
   try {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const s = await api.connect(t);
+        const s = d.k8s
+          ? await opApi.connect(opOptions(), d.k8s.namespace, d.k8s.name, { acceptHostKeys: t.acceptHostKeys, saveHostKeys: t.saveHostKeys, passphrases: t.passphrases })
+          : await api.connect(t);
         d.session = s;
         d.state = "on";
         S.sessions.push(s);

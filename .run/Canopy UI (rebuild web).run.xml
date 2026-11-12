@@ -2,7 +2,7 @@
   <configuration default="false" name="Canopy UI (rebuild web)" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="Canopy" />
     <working_directory value="$PROJECT_DIR$" />
-    <parameters value="--connections lab/connections.yaml ui" />
+    <parameters value="--connections lab/connections.yaml ui --kubeconfig lab/.kube/config --operator-jump canopy@127.0.0.1:2222 --operator-identity lab/.ssh/canopy_lab_ed25519" />
     <envs>
       <env name="GNMI_PASSWORD" value="NokiaSrl1!" />
     </envs>

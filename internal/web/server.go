@@ -39,6 +39,8 @@ type Server struct {
 	token string
 	ln    net.Listener
 	http  *http.Server
+	// OpDefaults fill operator requests that leave fields empty.
+	OpDefaults app.OperatorOptions
 }
 
 // New creates a server listening on addr (which must be a loopback address).
@@ -122,6 +124,12 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("POST /api/snapshots", s.snapshotTake)
 	api.HandleFunc("POST /api/snapshots/diff", s.snapshotDiff)
 	api.HandleFunc("DELETE /api/snapshots", s.snapshotDelete)
+	api.HandleFunc("GET /api/operator/info", s.opInfo)
+	api.HandleFunc("POST /api/operator/devices", s.opDevices)
+	api.HandleFunc("POST /api/operator/connect", s.opConnect)
+	api.HandleFunc("POST /api/operator/resources", s.opResources)
+	api.HandleFunc("POST /api/operator/pause", s.opPause)
+	api.HandleFunc("POST /api/operator/verify", s.opVerify)
 	mux.Handle("/api/", s.guard(api))
 	return s.secure(mux)
 }

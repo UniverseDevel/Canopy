@@ -181,6 +181,8 @@ The shadow copies the lab node's Capabilities (the provider sees a real release)
 listens with TLS on the kind network gateway, and logs every Set the operator sends
 (`curl http://172.18.0.1:57580/v1/sets` inside WSL). After deleting the Banner,
 `verify --deleted` checks that the operator removed its leaves. Remove the test
-resources with `kubectl delete -f lab/operator/shadow1-qa.yaml`.
+resources in order (the Banner first, while its Device still exists, so the operator
+can finish its cleanup): `kubectl delete banner canopy-qa-banner`, then
+`kubectl delete -f lab/operator/shadow1-qa.yaml`.
 
 `lab.sh kubeconfig` writes `lab/.kube/config` for Canopy on Windows.

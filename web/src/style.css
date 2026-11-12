@@ -271,3 +271,23 @@ button.danger { background: var(--err); border-color: var(--err); color: #fff; }
 .snap-paths { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .snap-result h4 { margin: 10px 0 4px; }
 .snapshots .field input { width: 100%; }
+
+/* Cluster (operator mode) */
+.cluster-head { margin: 4px 0 0; }
+.cluster-info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-panel .devices { flex: 1 1 0; }
+.device-panel .devices.cluster { flex: 1 1 0; }
+.tag-ok { color: var(--ok); border-color: var(--ok); }
+.tag-warn { color: var(--kind-ll); border-color: var(--kind-ll); }
+.icon-spacer { display: inline-block; width: 26px; flex: none; }
+
+/* Operator tab */
+.operator { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+.op-table, .verify-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.op-table td, .op-table th, .verify-table td, .verify-table th { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.op-table td.actions { text-align: right; white-space: nowrap; }
+.verify-table td.mono { word-break: break-all; }
+.badge { font: 600 10.5px var(--mono); padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; white-space: nowrap; }
+.badge.ok { color: var(--ok); } .badge.err { color: var(--err); } .badge.warn { color: var(--kind-ll); } .badge.muted { color: var(--muted); }
+.op-result h4 { margin: 10px 0 4px; display: flex; gap: 8px; align-items: center; }
+.reasons { margin: 4px 0; padding-left: 18px; color: var(--kind-ll); font-size: 12px; }
