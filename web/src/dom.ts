@@ -66,3 +66,29 @@ export async function copyText(text: string, what: string) {
     toast(ok ? `Copied ${what}` : "Copy failed; the browser blocked the clipboard", ok ? "ok" : "err");
   }
 }
+
+export function field(label: string, input: HTMLElement, hint?: string) {
+  return h("label", { class: "field" }, h("span", {}, label), input, hint ? h("small", {}, hint) : null);
+}
+
+// modal shows a dialog and resolves with the clicked button's value (null on
+// Close or Escape). keepOpen handles a button inside the dialog (returns true
+// to keep it open).
+export function modal(title: string, body: HTMLElement, buttons: { label: string; primary?: boolean; value: string; danger?: boolean }[],
+  opts: { wide?: boolean; keepOpen?: (value: string) => boolean | Promise<boolean> } = {}): Promise<string | null> {
+  return new Promise((resolve) => {
+    const close = (v: string | null) => { back.remove(); resolve(v); };
+    const click = async (v: string) => {
+      if (opts.keepOpen && (await opts.keepOpen(v))) return; // handled inside, stay open
+      close(v);
+    };
+    const back = h("div", { class: "modal-back" },
+      h("div", { class: "modal" + (opts.wide ? " wide" : "") }, h("h3", {}, title), body,
+        h("div", { class: "row end" }, ...buttons.map((b) =>
+          h("button", { class: (b.primary ? "primary" : "") + (b.danger ? " danger" : ""), "data-value": b.value, onclick: () => click(b.value) }, b.label)),
+          h("button", { onclick: () => close(null) }, "Close"))));
+    back.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Escape") close(null); });
+    document.body.append(back);
+    (back.querySelector("input, textarea, select") as HTMLElement | null ?? back.querySelector("button.primary") as HTMLElement | null)?.focus();
+  });
+}

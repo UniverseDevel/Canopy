@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/UniverseDevel/Canopy/internal/gpath"
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
@@ -179,4 +180,14 @@ func joinPath(base, k string) string {
 		return base + k
 	}
 	return base + "/" + k
+}
+
+// MergePath places v at path (string form) inside root, building lists for
+// keyed elements, the inverse of Flatten.
+func MergePath(root map[string]any, path string, v any) {
+	p, err := gpath.Parse(path)
+	if err != nil {
+		return
+	}
+	mergeAt(root, p.GetElem(), v)
 }

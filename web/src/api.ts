@@ -11,7 +11,7 @@ export interface AppError {
 }
 
 export class ApiError extends Error {
-  constructor(public err: AppError, public status: number) {
+  constructor(public err: AppError, public status: number, public body?: any) {
     super(err.message);
   }
 }
@@ -84,7 +84,7 @@ async function call<T>(method: string, url: string, body?: unknown, exact = fals
   let data: any = null;
   try { data = text ? (exact ? parse(text) : JSON.parse(text)) : null; } catch { /* not JSON */ }
   if (!res.ok) {
-    throw new ApiError(data?.error ?? { code: "http_" + res.status, message: text || res.statusText }, res.status);
+    throw new ApiError(data?.error ?? { code: "http_" + res.status, message: text || res.statusText }, res.status, data);
   }
   return data as T;
 }
@@ -124,4 +124,30 @@ export interface MatchEntry { module: string; status: string; advertised?: strin
 export interface MatchReport { counts: Record<string, number>; entries: MatchEntry[] }
 export const reportApi = {
   get: (session: string) => call<MatchReport>("GET", `/api/models/report?session=${encodeURIComponent(session)}`),
+};
+
+export interface SetOp { op: string; path: string; value?: unknown }
+export interface DiffChange { path: string; kind: string; before?: unknown; after?: unknown }
+export interface DiffResult { added: number; removed: number; changed: number; unchanged: number; changes: DiffChange[] }
+export interface SetOutcome {
+  preview: string; gnmic: GenCommand[]; problems: string[]; destructive: boolean; sent: boolean;
+  result?: { elapsedMs: number }; diff?: DiffResult;
+}
+export interface SnapMeta { name: string; device: string; address: string; time: string; paths: string[]; type: string; leaves: number; note?: string; models?: string }
+
+export const configApi = {
+  set: (body: { session: string; ops: SetOp[]; dryRun?: boolean; confirm?: boolean; shell?: string; ignore?: string[] }) =>
+    call<SetOutcome>("POST", "/api/set", body),
+  skeleton: (id: number) => call<{ value: unknown }>("GET", `/api/schema/skeleton?id=${id}`, undefined, true),
+  current: (session: string, path: string) =>
+    call<GetResult>("POST", "/api/get", { session, paths: [path], type: "config", encoding: "" }, true),
+};
+
+export const snapApi = {
+  list: () => call<SnapMeta[]>("GET", "/api/snapshots"),
+  take: (session: string, paths: string[], type: string, name?: string, note?: string) =>
+    call<SnapMeta>("POST", "/api/snapshots", { session, paths, type, name, note }),
+  diff: (a: string, b: string, session: string, ignore: string[]) =>
+    call<DiffResult>("POST", "/api/snapshots/diff", { a, b, session, ignore }, true),
+  remove: (name: string) => call("DELETE", `/api/snapshots?name=${encodeURIComponent(name)}`),
 };

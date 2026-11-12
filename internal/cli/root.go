@@ -111,7 +111,7 @@ func newRoot(g *globals) *cobra.Command {
 	root.PersistentFlags().StringVar(&g.logLevel, "log-level", "", "log level: debug, info, warn, error")
 	root.PersistentFlags().StringVar(&g.logFile, "log-file", "", "write structured JSON logs to this file")
 	root.PersistentFlags().StringSliceVar(&g.connFiles, "connections", nil, "extra read-only saved-connections file(s), e.g. lab/connections.yaml (also $CANOPY_CONNECTIONS)")
-	root.AddCommand(newVersionCmd(g), newConnCmd(g), newModelsCmd(g), newConnectCmd(g), newGetCmd(g), newTreeCmd(g), newGenerateCmd(g), newUICmd(g))
+	root.AddCommand(newVersionCmd(g), newConnCmd(g), newModelsCmd(g), newSetCmd(g), newSnapshotCmd(g), newShadowCmd(g), newConnectCmd(g), newGetCmd(g), newTreeCmd(g), newGenerateCmd(g), newUICmd(g))
 	return root
 }
 

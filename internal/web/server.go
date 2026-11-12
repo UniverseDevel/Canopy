@@ -20,6 +20,7 @@ import (
 	"github.com/UniverseDevel/Canopy/internal/app"
 	"github.com/UniverseDevel/Canopy/internal/apperr"
 	"github.com/UniverseDevel/Canopy/internal/buildinfo"
+	"github.com/UniverseDevel/Canopy/internal/config"
 	"github.com/UniverseDevel/Canopy/internal/connections"
 	"github.com/UniverseDevel/Canopy/internal/format"
 	"github.com/UniverseDevel/Canopy/internal/generate"
@@ -115,6 +116,12 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("POST /api/models/load", s.modelLoad)
 	api.HandleFunc("POST /api/models/auto", s.modelAuto)
 	api.HandleFunc("GET /api/models/report", s.modelReport)
+	api.HandleFunc("POST /api/set", s.set)
+	api.HandleFunc("GET /api/schema/skeleton", s.skeleton)
+	api.HandleFunc("GET /api/snapshots", s.snapshotsList)
+	api.HandleFunc("POST /api/snapshots", s.snapshotTake)
+	api.HandleFunc("POST /api/snapshots/diff", s.snapshotDiff)
+	api.HandleFunc("DELETE /api/snapshots", s.snapshotDelete)
 	mux.Handle("/api/", s.guard(api))
 	return s.secure(mux)
 }
@@ -478,4 +485,99 @@ func (s *Server) modelReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, rep)
+}
+
+func (s *Server) set(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Session string `json:"session"`
+		config.Request
+		app.SetOptions
+	}
+	if err := decode(r, &req); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	out, err := s.svc.Set(r.Context(), req.Session, req.Request, req.SetOptions)
+	if err != nil {
+		if out != nil {
+			// Still return the preview and validation alongside the error.
+			ae := apperr.As(err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			json.NewEncoder(w).Encode(map[string]any{"error": ae, "outcome": out})
+			return
+		}
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) skeleton(w http.ResponseWriter, r *http.Request) {
+	t := s.tree(w)
+	if t == nil {
+		return
+	}
+	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
+	if t.Node(id) == nil {
+		writeErr(w, apperr.New(apperr.ClassUsage, apperr.CodeNotFound, "no node %d", id), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]any{"value": config.Skeleton(t, id)})
+}
+
+func (s *Server) snapshotsList(w http.ResponseWriter, _ *http.Request) {
+	l, err := s.svc.Snapshots().List()
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, l)
+}
+
+func (s *Server) snapshotTake(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Session string   `json:"session"`
+		Paths   []string `json:"paths"`
+		Type    string   `json:"type"`
+		Name    string   `json:"name"`
+		Note    string   `json:"note"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	m, err := s.svc.TakeSnapshot(r.Context(), req.Session, live.GetRequest{Paths: req.Paths, Type: req.Type}, req.Name, req.Note)
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, m)
+}
+
+func (s *Server) snapshotDiff(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		A       string   `json:"a"`
+		B       string   `json:"b"`
+		Session string   `json:"session"`
+		Ignore  []string `json:"ignore"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	d, err := s.svc.CompareSnapshot(r.Context(), req.A, req.B, req.Session, req.Ignore)
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, d)
+}
+
+func (s *Server) snapshotDelete(w http.ResponseWriter, r *http.Request) {
+	if err := s.svc.Snapshots().Delete(r.URL.Query().Get("name")); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
 }

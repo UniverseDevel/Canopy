@@ -27,6 +27,8 @@ type Request struct {
 	SampleInterval string `json:"sampleInterval,omitempty"` // default 10s
 	Shell          string `json:"shell,omitempty"`          // bash (default) or powershell
 	LocalPort      int    `json:"localPort,omitempty"`      // tunnel port, default 57400+
+	// SetOps are the changes for mode "set" (see GnmicSet).
+	SetOps []SetOp `json:"-"`
 }
 
 // Command is one generated command.
@@ -51,11 +53,11 @@ func Gnmic(r Request) (*Output, error) {
 		mode = "get"
 	}
 	switch mode {
-	case "get", "once", "stream", "poll", "capabilities":
+	case "get", "once", "stream", "poll", "capabilities", "set":
 	default:
 		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "unknown mode %q (get, once, stream, poll, capabilities)", r.Mode)
 	}
-	if mode != "capabilities" && len(r.Paths) == 0 {
+	if mode != "capabilities" && mode != "set" && len(r.Paths) == 0 {
 		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "at least one path is required")
 	}
 	shell := strings.ToLower(r.Shell)
@@ -139,10 +141,24 @@ func Gnmic(r Request) (*Output, error) {
 	}
 	if r.Encoding != "" && mode != "capabilities" {
 		b = append(b, "-e", strings.ToLower(r.Encoding))
+	} else if mode == "set" {
+		b = append(b, "-e", "json_ietf")
 	}
 	switch mode {
 	case "capabilities":
 		b = append(b, "capabilities")
+	case "set":
+		b = append(b, "set")
+		for _, op := range r.SetOps {
+			switch strings.ToLower(op.Op) {
+			case "delete":
+				b = append(b, "--delete", q(op.Path))
+			case "replace":
+				b = append(b, "--replace-path", q(op.Path), "--replace-value", quoteAlways(shell, op.Value))
+			default:
+				b = append(b, "--update-path", q(op.Path), "--update-value", quoteAlways(shell, op.Value))
+			}
+		}
 	case "get":
 		b = append(b, "get")
 		if t := strings.ToLower(r.Type); t != "" && t != "all" {
@@ -298,4 +314,32 @@ func config(r Request, mode, addr, serverName string) string {
 		}
 	}
 	return b.String()
+}
+
+// SetOp is one change for GnmicSet.
+type SetOp struct {
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value string `json:"value,omitempty"` // JSON text
+}
+
+func quoteAlways(shell, s string) string {
+	if shell == "powershell" {
+		return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// GnmicSet generates the gnmic set command for the changes (values inline).
+func GnmicSet(r Request, ops []SetOp) (*Output, error) {
+	if len(ops) == 0 {
+		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "no changes given")
+	}
+	r.Mode, r.SetOps, r.Paths = "set", ops, nil
+	out, err := Gnmic(r)
+	if err != nil {
+		return nil, err
+	}
+	out.Config = ""
+	return out, nil
 }

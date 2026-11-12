@@ -49,3 +49,17 @@ func TestStreamThroughJump(t *testing.T) {
 		}
 	}
 }
+
+func TestSetCommand(t *testing.T) {
+	out, err := GnmicSet(Request{Target: conn.Options{Address: "10.0.0.5:57400", SkipVerify: true}},
+		[]SetOp{{Op: "update", Path: "/system/banner/login-banner", Value: `"it's me"`}, {Op: "delete", Path: "/interface[name=e1]"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := strings.ReplaceAll(out.Commands[0].Text, " \\\n  ", " ")
+	for _, want := range []string{"-e json_ietf set", `--update-path /system/banner/login-banner --update-value '"it'\''s me"'`, "--delete '/interface[name=e1]'"} {
+		if !strings.Contains(c, want) {
+			t.Errorf("missing %q in %q", want, c)
+		}
+	}
+}

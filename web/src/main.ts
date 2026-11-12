@@ -1,5 +1,7 @@
 import { api, ApiError, GetResult, MatchReport, modelsApi, ModelSource, reportApi, NodeDetail, Preset, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
-import { $, append, clear, copyText, h, toast } from "./dom";
+import { openConfigDialog } from "./config";
+import { snapshotsTab } from "./snapshots";
+import { $, append, clear, copyText, field, h, modal, toast } from "./dom";
 import { Num, stringify } from "./json";
 import { VirtualList } from "./vlist";
 
@@ -39,9 +41,6 @@ function errText(e: unknown): string {
 
 // ---------- layout ----------
 
-function field(label: string, input: HTMLElement, hint?: string) {
-  return h("label", { class: "field" }, h("span", {}, label), input, hint ? h("small", {}, hint) : null);
-}
 
 const deviceList = h("div", { class: "devices" });
 // Full-height device column on the far left, like vertical tabs.
@@ -99,7 +98,8 @@ const genOut = h("div", { class: "gen-out" });
 const capsHost = h("div", { class: "caps" }, h("p", { class: "muted" }, "Connect to see capabilities."));
 const footer = h("footer", {});
 
-const tabs = ["Data", "Commands", "Capabilities"] as const;
+const tabs = ["Data", "Commands", "Snapshots", "Capabilities"] as const;
+const snaps = snapshotsTab({ session: () => S.session, paths: () => markedPaths(), type: () => typeSel.value });
 type Tab = typeof tabs[number];
 const tabBar = h("div", { class: "tabs" });
 const tabBodies: Record<Tab, HTMLElement> = {
@@ -124,6 +124,7 @@ const tabBodies: Record<Tab, HTMLElement> = {
     h("div", { class: "row" }, field("Mode", genMode), field("Shell", genShell), field("Sample interval", genInterval),
       h("button", { class: "primary", onclick: () => generate() }, "Generate")),
     genOut),
+  Snapshots: h("div", { class: "tab-body" }, snaps.el),
   Capabilities: h("div", { class: "tab-body" }, capsHost),
 };
 let activeTab: Tab = "Data";
@@ -135,6 +136,7 @@ function showTab(t: Tab) {
     tabBar.append(h("button", { class: x === t ? "tab active" : "tab", onclick: () => showTab(x) }, x));
   }
   for (const x of tabs) tabBodies[x].hidden = x !== t;
+  if (t === "Snapshots") snaps.refresh();
 }
 
 // ---------- layout: resizable panes, collapsible connection form ----------
@@ -209,19 +211,6 @@ function mount() {
 
 // ---------- modal ----------
 
-function modal(title: string, body: HTMLElement, buttons: { label: string; primary?: boolean; value: string }[]): Promise<string | null> {
-  return new Promise((resolve) => {
-    const close = (v: string | null) => { back.remove(); resolve(v); };
-    const back = h("div", { class: "modal-back" },
-      h("div", { class: "modal" }, h("h3", {}, title), body,
-        h("div", { class: "row end" }, ...buttons.map((b) =>
-          h("button", { class: b.primary ? "primary" : "", onclick: () => close(b.value) }, b.label)),
-          h("button", { onclick: () => close(null) }, "Cancel"))));
-    back.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Escape") close(null); });
-    document.body.append(back);
-    (back.querySelector("input") ?? back.querySelector("button.primary") as HTMLElement | null)?.focus();
-  });
-}
 
 // ---------- devices ----------
 
@@ -901,7 +890,14 @@ function showDetails(d: NodeDetail) {
       twin ? h("button", {
         title: `Go to ${twin.includes("/state/") ? "the state" : "the config"} twin`,
         onclick: async () => { try { reveal((await api.find(twin)).node.id); } catch { toast("No twin in the loaded models", "err"); } },
-      }, twin.includes("/state/") ? "→ state" : "→ config") : null),
+      }, twin.includes("/state/") ? "→ state" : "→ config") : null,
+      n.config ? h("button", {
+        title: "Build a change for this node: validate, preview, then apply with confirmation",
+        onclick: () => {
+          if (!S.session) { toast("Connect a device first", "err"); return; }
+          openConfigDialog(n, S.session, () => { if (markedPaths().length) doGet(); });
+        },
+      }, "Configure…") : null),
     instHost,
     h("table", { class: "props" }, h("tbody", {}, ...rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v))))),
     n.description ? h("div", { class: "desc" }, n.description) : null,

@@ -246,3 +246,28 @@ button.icon { padding: 1px 6px; }
 .instances-host td, .instances-host th { text-align: left; padding: 2px 6px; border-bottom: 1px solid var(--line); }
 .instances-host td.actions { text-align: right; white-space: nowrap; }
 .instances-host { max-height: 40vh; overflow: auto; }
+
+/* Config dialog, diff, snapshots */
+.modal.wide { width: min(1000px, 96vw); }
+.form-grid.two { grid-template-columns: 3fr 1fr; }
+.mono { font-family: var(--mono); font-size: 12px; }
+textarea.mono { width: 100%; }
+.cfg-out .problems { border-left: 3px solid var(--kind-ll); padding: 4px 10px; margin: 6px 0; }
+.cfg-out .problems ul { margin: 4px 0; padding-left: 18px; }
+.ok { color: var(--ok); } .warn { color: var(--kind-ll); }
+.check.confirm { border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; }
+.check.confirm.attention { border-color: var(--err); }
+button.danger { background: var(--err); border-color: var(--err); color: #fff; }
+.diff-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.diff-table td { padding: 2px 6px; border-bottom: 1px solid var(--line); vertical-align: top; word-break: break-all; }
+.d-added td:first-child, .d-added td:nth-child(4) { color: var(--ok); }
+.d-removed td:first-child, .d-removed td:nth-child(3) { color: var(--err); }
+.d-changed td:first-child { color: var(--kind-ll); }
+.snapshots { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+.snap { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; }
+.snap > input, .snap > button { flex: none; }
+.snap-main { flex: 1; min-width: 0; }
+.snap-name { font-weight: 600; }
+.snap-paths { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.snap-result h4 { margin: 10px 0 4px; }
+.snapshots .field input { width: 100%; }
