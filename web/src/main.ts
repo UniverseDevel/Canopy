@@ -95,6 +95,20 @@ const getBtn = h("button", { class: "primary", onclick: () => doGet() }, "Get");
 const resultMeta = h("div", { class: "muted small" });
 const viewSel = h("div", { class: "seg" });
 const dataHost = h("div", { class: "data-host" });
+let showPrefixes = store.get("prefixes") === "1";
+const prefixChk = h("input", { type: "checkbox", checked: showPrefixes });
+prefixChk.addEventListener("change", () => {
+  showPrefixes = prefixChk.checked;
+  store.set("prefixes", showPrefixes ? "1" : "0");
+  dataList.refresh();
+});
+
+function expandData(open: boolean) {
+  dataOpen.clear();
+  if (open) for (const n of dnodes) if (!n.leaf) dataOpen.add(n.id);
+  else if (dnodes.length) dataOpen.add(0);
+  dataList.setItems(visibleData());
+}
 let dataView: "tree" | "json" | "yaml" | "flat" = "tree";
 
 const genMode = h("select", {}, ...["get", "once", "stream", "poll", "capabilities"].map((t) => h("option", { value: t }, t)));
@@ -114,6 +128,10 @@ const tabBodies: Record<Tab, HTMLElement> = {
       h("div", { class: "row" }, typeSel, encSel, getBtn,
         h("button", { onclick: () => { pathsArea.value = ""; refreshTree(); } }, "Clear paths"))),
     h("div", { class: "row between" }, viewSel, resultMeta),
+    h("div", { class: "row" },
+      h("button", { class: "small", onclick: () => expandData(true) }, "Expand all"),
+      h("button", { class: "small", onclick: () => expandData(false) }, "Collapse all"),
+      h("label", { class: "check small", title: "Show module prefixes such as srl_nokia-interfaces: in names (display only; copies keep them)" }, prefixChk, "Module prefixes")),
     h("div", { class: "row" },
       h("button", { onclick: () => copySelection("json") }, "Copy selection as JSON"),
       h("button", { onclick: () => copySelection("yaml") }, "Copy selection as YAML"),
@@ -139,17 +157,60 @@ function showTab(t: Tab) {
   for (const x of tabs) tabBodies[x].hidden = x !== t;
 }
 
+// ---------- layout: resizable panes, collapsible connection form ----------
+
+const leftPane = h("section", { class: "pane left" },
+  h("div", { class: "row" }, yangInput, loadBtn), schemaInfo, searchInput, treeHost);
+const centerPane = h("section", { class: "pane center" }, details);
+const rightPane = h("section", { class: "pane right" }, tabBar, ...tabs.map((t) => tabBodies[t]));
+const splitL = h("div", { class: "split", title: "Drag to resize" });
+const splitR = h("div", { class: "split", title: "Drag to resize" });
+const mainEl = h("main", {}, leftPane, splitL, centerPane, splitR, rightPane);
+
+function setupSplitters() {
+  const apply = () => {
+    const l = Number(store.get("wLeft")), r = Number(store.get("wRight"));
+    if (l) mainEl.style.setProperty("--w-left", `${l}px`);
+    if (r) mainEl.style.setProperty("--w-right", `${r}px`);
+  };
+  const drag = (which: "wLeft" | "wRight") => (e: MouseEvent) => {
+    e.preventDefault();
+    const box = mainEl.getBoundingClientRect();
+    const move = (ev: MouseEvent) => {
+      const w = which === "wLeft" ? ev.clientX - box.left : box.right - ev.clientX;
+      const max = box.width - 520; // keep room for the other panes
+      store.set(which, String(Math.round(Math.max(220, Math.min(max, w)))));
+      apply();
+    };
+    const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); document.body.classList.remove("dragging"); };
+    document.body.classList.add("dragging");
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  };
+  splitL.addEventListener("mousedown", drag("wLeft"));
+  splitR.addEventListener("mousedown", drag("wRight"));
+  // double-click resets
+  for (const [s, k] of [[splitL, "wLeft"], [splitR, "wRight"]] as const) {
+    s.addEventListener("dblclick", () => { store.set(k, ""); mainEl.style.removeProperty(k === "wLeft" ? "--w-left" : "--w-right"); });
+  }
+  apply();
+}
+
+const connToggle = h("button", { class: "small", onclick: () => setConnCollapsed(!connPanel.classList.contains("collapsed")) }, "Hide connection form");
+function setConnCollapsed(c: boolean) {
+  connPanel.classList.toggle("collapsed", c);
+  connToggle.textContent = c ? "Show connection form" : "Hide connection form";
+}
+
 function mount() {
   const app = $("#app");
   append(app,
-    h("header", {}, h("div", { class: "brand" }, "Canopy"), h("div", { class: "muted small", id: "build" })),
+    h("header", {}, h("div", { class: "brand" }, "Canopy"), h("div", { class: "muted small", id: "build" }),
+      h("div", { class: "spacer" }), connToggle),
     connPanel,
-    h("main", {},
-      h("section", { class: "pane left" },
-        h("div", { class: "row" }, yangInput, loadBtn), schemaInfo, searchInput, treeHost),
-      h("section", { class: "pane center" }, details),
-      h("section", { class: "pane right" }, tabBar, ...tabs.map((t) => tabBodies[t]))),
+    mainEl,
     footer);
+  setupSplitters();
   showTab("Data");
   renderViewSel();
   let searchTimer = 0;
@@ -363,6 +424,7 @@ async function connect() {
         S.sessions.push(s);
         F.password.value = "";
         await activate(s.id);
+        setConnCollapsed(true); // more room for the tree and data; the header button shows it again
         if (s.preset) loadPresets(); // refresh "last connected"
         return;
       } catch (e) {
@@ -754,9 +816,11 @@ function renderDataRow(n: DNode) {
   caret.addEventListener("click", () => { dataOpen.has(n.id) ? dataOpen.delete(n.id) : dataOpen.add(n.id); dataList.setItems(visibleData()); });
   const cb = h("input", { type: "checkbox", checked: dataSel.has(n.id), title: "Select for copying" });
   cb.addEventListener("change", () => { cb.checked ? dataSel.add(n.id) : dataSel.delete(n.id); dataList.refresh(); });
-  append(row, caret, cb, h("span", { class: "dkey" }, n.label),
+  const label = showPrefixes ? n.label : bare(n.label);
+  append(row, caret, cb, h("span", { class: "dkey" }, label),
     n.leaf ? h("span", { class: "dval" + (typeof n.value === "string" ? " str" : "") }, preview(n.value)) : h("span", { class: "muted" }, preview(n.value)));
-  row.title = n.path;
+  // Full path (with module prefixes) and value on hover; double-click opens the schema node.
+  row.title = n.leaf ? `${n.path}\n= ${preview(n.value)}` : n.path;
   row.addEventListener("dblclick", () => locate(n.path));
   return row;
 }
