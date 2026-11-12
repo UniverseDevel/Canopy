@@ -14,6 +14,7 @@ import (
 	"github.com/UniverseDevel/Canopy/internal/app"
 	"github.com/UniverseDevel/Canopy/internal/apperr"
 	"github.com/UniverseDevel/Canopy/internal/buildinfo"
+	"github.com/UniverseDevel/Canopy/internal/connections"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -26,6 +27,7 @@ type globals struct {
 	nonInteractive bool
 	logLevel       string
 	logFile        string
+	connFiles      []string
 
 	stdout io.Writer
 	stderr io.Writer
@@ -100,6 +102,7 @@ func newRoot(g *globals) *cobra.Command {
 			if g.output != "text" && g.output != "json" {
 				return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "--output must be text or json")
 			}
+			connections.ExtraFiles = g.connFiles
 			return g.setupLog()
 		},
 	}
@@ -107,6 +110,7 @@ func newRoot(g *globals) *cobra.Command {
 	root.PersistentFlags().BoolVar(&g.nonInteractive, "non-interactive", false, "never prompt (also implied when stdin isn't a terminal)")
 	root.PersistentFlags().StringVar(&g.logLevel, "log-level", "", "log level: debug, info, warn, error")
 	root.PersistentFlags().StringVar(&g.logFile, "log-file", "", "write structured JSON logs to this file")
+	root.PersistentFlags().StringSliceVar(&g.connFiles, "connections", nil, "extra read-only saved-connections file(s), e.g. lab/connections.yaml (also $CANOPY_CONNECTIONS)")
 	root.AddCommand(newVersionCmd(g), newConnCmd(g), newConnectCmd(g), newGetCmd(g), newTreeCmd(g), newGenerateCmd(g), newUICmd(g))
 	return root
 }

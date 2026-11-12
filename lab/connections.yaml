@@ -1,6 +1,6 @@
 # Canopy connection presets for the local lab (lab/README.md).
 #
-# Read-only: Canopy loads this file when CANOPY_CONNECTIONS points at it (the IDE run
+# Read-only: Canopy loads this file with --connections lab/connections.yaml (the IDE run
 # configurations in .run/ do that), lists these presets next to your own, and never
 # writes to it. Relative paths are relative to this folder.
 #

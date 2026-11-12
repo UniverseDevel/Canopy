@@ -90,13 +90,17 @@ func DefaultPath() string {
 	return filepath.Join(dir, "connections.yaml")
 }
 
+// ExtraFiles are read-only preset files added by the --connections flag; Open
+// includes them before those from $CANOPY_CONNECTIONS.
+var ExtraFiles []string
+
 // Open returns a store for path (DefaultPath if empty) with the extra read-only
 // files listed in $CANOPY_CONNECTIONS (separated like PATH).
 func Open(path string) *Store {
 	if path == "" {
 		path = DefaultPath()
 	}
-	s := &Store{Path: path}
+	s := &Store{Path: path, Extra: append([]string{}, ExtraFiles...)}
 	for _, p := range filepath.SplitList(os.Getenv("CANOPY_CONNECTIONS")) {
 		if p = strings.TrimSpace(p); p != "" {
 			s.Extra = append(s.Extra, p)

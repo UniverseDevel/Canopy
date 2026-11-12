@@ -4,7 +4,6 @@
     <working_directory value="$PROJECT_DIR$" />
     <parameters value="tree --yang lab/models/srlinux-v26.7.1/srlinux-yang-models --find login-banner" />
     <envs>
-      <env name="CANOPY_CONNECTIONS" value="$PROJECT_DIR$/lab/connections.yaml" />
       <env name="GNMI_PASSWORD" value="NokiaSrl1!" />
     </envs>
     <kind value="PACKAGE" />

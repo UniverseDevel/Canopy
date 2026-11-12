@@ -54,7 +54,7 @@ mkdir -p lab/models/srlinux-v26.7.1 && curl -sSL https://codeload.github.com/nok
 ## Canopy presets and SSH jump host
 
 [`connections.yaml`](connections.yaml) has the Canopy presets used for testing. The IDE
-run configurations load it through `CANOPY_CONNECTIONS`; from a shell, set
+run configurations load it with `--connections lab/connections.yaml`; from a shell, add that flag or set
 `CANOPY_CONNECTIONS=lab/connections.yaml`. Paths in it are relative to `lab/`.
 
 | Preset | Path to the node |

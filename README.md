@@ -104,7 +104,7 @@ variable with that device's password (default `GNMI_PASSWORD`).
 
 Presets live in `canopy conn path` (the user config folder, or `$CANOPY_CONFIG_DIR`).
 Extra read-only preset files, for example a team file, are added with
-`CANOPY_CONNECTIONS` (separated like `PATH`); relative paths in them resolve against the
+`--connections FILE` or `CANOPY_CONNECTIONS` (separated like `PATH`); relative paths in them resolve against the
 file's folder. [`lab/connections.yaml`](lab/connections.yaml) holds the lab presets.
 
 **Git Bash on Windows** rewrites arguments that start with `/` into Windows paths
@@ -128,7 +128,7 @@ automatically:
 | Lab - get lab-srl1 | Reads the preset's favourite paths |
 | Lab - tree find login-banner | Schema search in the SR Linux models |
 
-The UI and Lab configurations set `CANOPY_CONNECTIONS` to
+The UI and Lab configurations pass `--connections lab/connections.yaml`, i.e.
 [`lab/connections.yaml`](lab/connections.yaml), which is exactly what is used for local
 testing, and `GNMI_PASSWORD` to the SR Linux lab default.
 

@@ -2,9 +2,8 @@
   <configuration default="false" name="Lab - list connections" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="Canopy" />
     <working_directory value="$PROJECT_DIR$" />
-    <parameters value="conn list" />
+    <parameters value="--connections lab/connections.yaml conn list" />
     <envs>
-      <env name="CANOPY_CONNECTIONS" value="$PROJECT_DIR$/lab/connections.yaml" />
       <env name="GNMI_PASSWORD" value="NokiaSrl1!" />
     </envs>
     <kind value="PACKAGE" />
