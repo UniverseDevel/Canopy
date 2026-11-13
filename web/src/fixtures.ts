@@ -25,7 +25,7 @@ const store = {
 };
 
 export function fixturesTab(ctx: FixtureContext) {
-  const host = h("div", { class: "fixtures" });
+  const host = h("div", { class: "fixtures op-split" });
 
   // ----- run settings -----
   const provider = h("select", {});
@@ -135,7 +135,7 @@ export function fixturesTab(ctx: FixtureContext) {
     if (!o.deviceAddress) { toast("Enter the address the operator uses to reach the shadow target", "err"); return; }
     const file = text ? (name || "built.txtar") : fixture.value;
     if (!file) { toast("Pick a fixture", "err"); return; }
-    clear(runOut);
+    clear(runOut); clear(viewOut); side.scrollTop = 0;
     runOut.append(h("p", { class: "muted small" }, `Running ${file}: creating a namespace, a Device and the resources; waiting for the operator… (up to a few minutes)`));
     try {
       showRun(await fixturesApi.run(ctx.options(), { ...o, file, text }));
@@ -213,7 +213,15 @@ export function fixturesTab(ctx: FixtureContext) {
     } catch (e) { toast(errText(e), "err"); }
   };
 
-  append(host,
+  // run reports and viewed fixtures go to the side panel, next to the forms
+  const side = h("aside", { class: "op-side" },
+    h("div", { class: "op-side-head" }, h("span", { class: "muted small section-label" }, "Result"), h("span", { class: "grow" }),
+      h("button", { class: "small icon", title: "Clear", onclick: () => { clear(runOut); clear(viewOut); } }, "✕")),
+    viewOut, runOut,
+    h("p", { class: "muted small op-side-empty" }, "Run reports and viewed fixtures show here."));
+  const formCol = h("div", { class: "op-split-main" });
+  append(host, formCol, side);
+  append(formCol,
     h("p", { class: "muted small" }, "Test cases for network-operator: a resource and the device state it must produce. ", help("fixtures")),
     h("section", { class: "fx-section" },
       h("h3", {}, "network-operator checkout", help("fixtures")),
@@ -232,12 +240,12 @@ export function fixturesTab(ctx: FixtureContext) {
           if (!fixture.value) return;
           try {
             const t = (await fixturesApi.read(ctx.options(), provider.value, fixture.value)).text;
-            clear(viewOut);
+            clear(viewOut); clear(runOut); side.scrollTop = 0;
             viewOut.append(h("details", { open: true }, h("summary", {}, fixture.value), h("pre", { class: "code" }, t)));
           } catch (e) { toast(errText(e), "err"); }
         } }, "View"),
         h("button", { class: "primary", onclick: () => run() }, "Run")),
-      viewOut, runOut),
+    ),
     h("section", { class: "fx-section" },
       h("h3", {}, "Build a fixture from snapshots", help("fixtureBuild")),
       h("p", { class: "muted small" }, "Snapshots before, after applying the resource, and after deleting it, plus the resource's YAML. Snapshots are taken in the Devices workspace: ",

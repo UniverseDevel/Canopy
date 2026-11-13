@@ -187,8 +187,8 @@ const tabBodies: Record<Tab, HTMLElement> = {
       dataHost),
     cmdBox),
   Snapshots: h("div", { class: "tab-body" }, snaps.el),
-  Resources: h("div", { class: "tab-body" }, opTab.el),
-  Fixtures: h("div", { class: "tab-body" }, fxTab.el),
+  Resources: h("div", { class: "tab-body wide" }, opTab.el),
+  Fixtures: h("div", { class: "tab-body wide" }, fxTab.el),
 };
 let activeTab: Tab = "Data";
 let activeOpTab: Tab = "Resources";

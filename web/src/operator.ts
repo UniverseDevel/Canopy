@@ -33,22 +33,27 @@ function badge(status: string, kind: "ready" | "verdict" | "leaf" = "ready") {
 }
 
 export function operatorTab(ctx: OpContext) {
-  const host = h("div", { class: "operator" });
+  const host = h("div", { class: "operator op-split" });
   const head = h("div", { class: "row op-head-body" });
   const list = h("div", { class: "op-list" });
-  const result = h("div", { class: "op-card op-result" });
+  // results (Verify, Spec, errors) go to the side panel, next to the lists,
+  // so pressing a button doesn't scroll the page away from it
+  const result = h("div", { class: "op-result" });
+  const side = h("aside", { class: "op-side" },
+    h("div", { class: "op-side-head" }, h("span", { class: "muted small section-label" }, "Result"), h("span", { class: "grow" }),
+      h("button", { class: "small icon", title: "Clear", onclick: () => clear(result) }, "✕")),
+    result,
+    h("p", { class: "muted small op-side-empty" }, "Verify, Spec and errors show here. Verify a resource or a sample to compare its intent with the device."));
   const kindList = h("datalist", { id: "op-kinds" });
   const delKind = h("input", { placeholder: "kind, e.g. Banner", list: "op-kinds" });
   const delName = h("input", { placeholder: "name (optional)" });
   const delBox = h("details", { class: "op-card op-deleted" });
 
   const dev = () => ctx.device();
-  const closeBtn = () => h("button", { class: "small icon", title: "Close", onclick: () => clear(result) }, "✕");
-  // the result sits below the lists: bring it into view when it changes
   const showResult = (...nodes: Child[]) => {
     clear(result);
     append(result, ...nodes);
-    requestAnimationFrame(() => result.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+    side.scrollTop = 0;
   };
   const knownKinds = new Set<string>();
   const addKinds = (ks: string[]) => {
@@ -76,9 +81,7 @@ export function operatorTab(ctx: OpContext) {
     showResult(
       h("div", { class: "row between" },
         h("h4", {}, `${v.resource.kind || ""} ${v.resource.name} · ${v.mode}`, " ", badge(v.verdict, "verdict")),
-        h("div", { class: "row" },
-          h("button", { class: "small", onclick: () => copyText(stringify(v), "verification JSON") }, "Copy report"),
-          closeBtn())),
+        h("button", { class: "small", onclick: () => copyText(stringify(v), "verification JSON") }, "Copy report")),
       h("p", { class: "muted small" }, `Device ${v.device} · fixture ${v.fixture} · ${v.elapsedMs} ms` + (v.alternates?.length ? ` · other fixtures: ${v.alternates.join(", ")}` : "")),
       v.reasons.length ? h("ul", { class: "reasons" }, ...v.reasons.map((r) => h("li", {}, r))) : null,
       h("table", { class: "grid verify-table" },
@@ -113,11 +116,11 @@ export function operatorTab(ctx: OpContext) {
       r.paused ? h("span", { class: "badge warn" }, "paused") : null,
       notReconciled(r) ? h("span", { class: "badge muted", title: `The operator hasn't reconciled the latest change yet (generation ${r.generation}, observed ${r.observedGeneration})` }, "reconciling") : null,
       r.ready !== "True" ? reasonOf(r) : null),
-    h("td", { class: "actions" },
+    h("td", { class: "actions" }, h("span", { class: "slots res" },
       h("button", { class: "small primary", title: "Check that this resource's intent is on the device", onclick: () => verify(r.kind, r.name) }, "Verify"),
       h("button", { class: "small", onclick: () => pause(r.kind, r.name, !r.paused) }, r.paused ? "Resume" : "Pause"),
       ctx.toFixture ? h("button", { class: "small", title: "Build a test fixture for this resource (Fixtures tab)", onclick: () => ctx.toFixture!(r) }, "Fixture") : null,
-      h("button", { class: "small icon", title: "Show spec", onclick: () => showResult(h("div", { class: "row between" }, h("h4", {}, `${r.kind} ${r.name} · spec`), closeBtn()), h("pre", { class: "code" }, stringify(r.spec ?? {}))) }, "Spec")));
+      h("button", { class: "small icon", title: "Show spec", onclick: () => showResult(h("h4", {}, `${r.kind} ${r.name} · spec`), h("pre", { class: "code" }, stringify(r.spec ?? {}))) }, "Spec"))));
 
   const refreshHead = () => {
     clear(head);
@@ -303,6 +306,6 @@ export function operatorTab(ctx: OpContext) {
       h("button", { class: "small", title: "Read the resources again", onclick: () => loadResources(true) }, "Refresh")),
     h("p", { class: "muted small" }, "The resources whose spec.deviceRef is this Device. Verify checks on the device that a resource's configuration is there."),
     list);
-  append(host, h("div", { class: "op-card op-head" }, head), resBox, samplesBox, delBox, result);
+  append(host, h("div", { class: "op-split-main" }, h("div", { class: "op-card op-head" }, head), resBox, samplesBox, delBox), side);
   return { el: host, refresh };
 }

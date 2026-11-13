@@ -502,11 +502,11 @@ input.secret { -webkit-text-security: disc; font-family: var(--mono); letter-spa
 .ws-section { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
 .ws-section[hidden], main[hidden], .op-main[hidden], .active-label[hidden] { display: none; }
 .op-main { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: auto; padding: 8px 14px; }
-.op-main > .tab-body { max-width: 1100px; }
+.op-main > .tab-body:not(.wide) { max-width: 1100px; }
 
 /* NetOp Resources tab: cards like the Fixtures tab's sections */
 .op-card { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; background: var(--panel); }
-.op-card[hidden], .op-result:empty { display: none; }
+.op-card[hidden] { display: none; }
 .op-card h3 { font-size: 13.5px; font-weight: 600; margin: 0; display: inline-flex; align-items: center; gap: 2px; }
 .op-card-head, .op-card > summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .op-card > summary { cursor: pointer; list-style: none; }
@@ -522,9 +522,10 @@ input.secret { -webkit-text-security: disc; font-family: var(--mono); letter-spa
 .op-table td.status .badge + .badge { margin-left: 4px; }
 .op-table td.status .cond { display: block; max-width: 340px; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 .op-table td, .op-table th { vertical-align: middle; }
-.op-table td.actions button + button { margin-left: 4px; }
-.op-table td.actions button { min-width: 58px; }
-.op-table .slots { display: inline-grid; grid-template-columns: 76px 104px 58px; gap: 4px; justify-items: stretch; }
+.op-table td.actions { width: 1%; }
+.op-card { overflow-x: auto; }
+.op-table .slots { display: inline-grid; grid-template-columns: 72px 100px 54px; gap: 4px; justify-items: stretch; }
+.op-table .slots.res { grid-template-columns: 54px 62px 58px 44px; }
 .op-table .slots button { width: 100%; min-width: 0; margin: 0; }
 .op-samples > .row { margin: 6px 0; }
 .op-samples input[type=search] { flex: 1; }
@@ -533,3 +534,16 @@ input.secret { -webkit-text-security: disc; font-family: var(--mono); letter-spa
 tr.muted td { color: var(--muted); }
 .fx-repo select { flex: 1; min-width: 0; }
 .fixtures > p.muted.small { margin: 2px 0 6px; }
+
+/* NetOp tabs: the forms and lists on the left, results on the side */
+.op-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 38%); gap: 12px; flex: 1; min-height: 0; overflow: hidden; }
+.op-split-main { overflow: auto; min-height: 0; padding-right: 2px; }
+.op-side { overflow: auto; min-height: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 0 10px 10px; }
+.op-side-head { display: flex; align-items: center; gap: 6px; position: sticky; top: 0; background: var(--panel); padding: 6px 0; margin-bottom: 4px; border-bottom: 1px solid var(--line); z-index: 1; }
+.op-side > div:not(.op-side-head):not(:empty) ~ .op-side-empty { display: none; }
+.op-side-empty { margin: 8px 0; }
+.op-side pre.code { max-height: none; }
+@media (max-width: 1000px) {
+  .op-split { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  .op-split-main, .op-side { overflow: visible; }
+}
