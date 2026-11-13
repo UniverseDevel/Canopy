@@ -190,7 +190,7 @@ export const snapApi = {
 // RepoInfo: the chosen network-operator checkout, recent ones, and the one in use.
 export interface RepoInfo { current?: string; recent: string[]; inUse?: string; error?: string }
 
-export interface OpOptions { kubeconfig?: string; context?: string; jumps?: string[]; identityFiles?: string[]; operatorRepo?: string; timeoutSec?: number }
+export interface OpOptions { kubeconfig?: string; context?: string; jumps?: string[]; identityFiles?: string[]; operatorRepo?: string; timeoutSec?: number; direct?: boolean }
 export interface Condition { type: string; status: string; reason?: string; message?: string }
 export interface K8sDevice { namespace: string; name: string; provider: string; address: string; phase?: string; paused: boolean; ready: string; conditions: Condition[]; tls: boolean }
 export interface K8sResource { kind: string; resource: string; version?: string; namespace: string; name: string; ready: string; paused: boolean; conditions: Condition[]; spec?: Record<string, unknown>; generation: number; observedGeneration: number }

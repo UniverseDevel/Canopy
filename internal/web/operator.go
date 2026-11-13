@@ -34,6 +34,8 @@ func (s *Server) opts(o app.OperatorOptions) app.OperatorOptions {
 	if len(o.IdentityFiles) == 0 {
 		o.IdentityFiles = st.IdentityFiles
 	}
+	// "connect directly" in the settings wins over the --operator-jump default
+	direct := st.Direct && len(o.Jumps) == 0
 	d := s.OpDefaults
 	if o.Kubeconfig == "" {
 		o.Kubeconfig = d.Kubeconfig
@@ -41,10 +43,10 @@ func (s *Server) opts(o app.OperatorOptions) app.OperatorOptions {
 	if o.Context == "" {
 		o.Context = d.Context
 	}
-	if len(o.Jumps) == 0 {
+	if len(o.Jumps) == 0 && !direct {
 		o.Jumps = d.Jumps
 	}
-	if len(o.IdentityFiles) == 0 {
+	if len(o.IdentityFiles) == 0 && !direct {
 		o.IdentityFiles = d.IdentityFiles
 	}
 	if o.OperatorRepo == "" && fixtures.Choice().Current == "" {

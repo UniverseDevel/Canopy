@@ -79,7 +79,7 @@ const T = {
     body: [
       "The network-operator workspace lists network-operator's Device resources from a Kubernetes cluster. Select one to see the resources that configure it (Resources tab); that needs only the cluster.",
       "Verify and Browse in Devices connect to the Device the way the operator does: the address, credentials and CA from the Device's Secrets, so you see exactly what the operator talks to. Browse in Devices opens that connection in the Devices workspace (schema, data, snapshots).",
-      "⚙ chooses the kubeconfig, context, and SSH jump hosts for device addresses that are only reachable from the cluster network. Canopy keeps them in its config folder (operator.json).",
+      "⚙ chooses the kubeconfig, context, and SSH jump hosts for device addresses that are only reachable from the cluster network. Canopy keeps them in its config folder (operator.json). An empty jump field uses the jump host Canopy was started with (`canopy ui --operator-jump`, e.g. from a lab run configuration); tick \"Connect to devices directly\" where devices need no jump host.",
     ],
     related: ["operator", "fixtures", "jump"],
     go: { label: "Open network-operator", target: "tab:Resources" },

@@ -511,7 +511,7 @@ async function loadCluster() {
       const key = `k:${x.namespace}/${x.name}`;
       const d = old.get(key) ?? { key, name: "", target: { address: "" }, state: "off" as const };
       Object.assign(d, {
-        name: `${x.namespace}/${x.name}`, target: { address: x.address, jumps: opSettings.jumps?.length ? opSettings.jumps : opDefaults.jumps },
+        name: `${x.namespace}/${x.name}`, target: { address: x.address, jumps: clusterJumps() },
         description: `${x.provider}\nphase ${x.phase ?? "?"}`,
         k8s: { namespace: x.namespace, name: x.name, ready: x.ready, paused: x.paused, provider: x.provider, tls: x.tls },
       });
@@ -528,6 +528,13 @@ async function loadCluster() {
   if (workspace === "operator") showTab(activeOpTab);
 }
 
+// the jump hosts cluster Devices are reached through: the settings', else the
+// defaults Canopy was started with, unless the settings say "directly"
+function clusterJumps() {
+  if (opSettings.jumps?.length) return opSettings.jumps;
+  return opSettings.direct ? undefined : opDefaults.jumps;
+}
+
 async function clusterSettings() {
   let info: Awaited<ReturnType<typeof opApi.info>> | null = null;
   try { info = await opApi.info(); } catch { /* shown below */ }
@@ -539,16 +546,27 @@ async function clusterSettings() {
   cx.value = st.context ?? "";
   const j = h("input", { value: (st.jumps ?? []).join(", "), placeholder: (d.jumps ?? []).join(", ") || "user@jump:22 (optional)" });
   const id = h("input", { value: (st.identityFiles ?? [])[0] ?? "", placeholder: (d.identityFiles ?? [])[0] || "key file (optional)" });
+  const direct = h("input", { type: "checkbox", checked: !!st.direct });
+  const syncDirect = () => {
+    j.disabled = id.disabled = direct.checked;
+    j.placeholder = direct.checked ? "none: devices are reached directly" : (d.jumps ?? []).join(", ") || "user@jump:22 (optional)";
+  };
+  direct.addEventListener("change", syncDirect);
+  syncDirect();
   const r = await modal("Cluster settings", h("div", { class: "form" },
     h("p", { class: "muted small" }, "Canopy reads network-operator's Devices from this cluster and connects to them as the operator does (address, credentials and CA from the Device's Secrets). Device addresses are often only reachable from the cluster network; give a jump host for that. Empty fields use the defaults Canopy was started with. Kept in Canopy's config folder (operator.json)."),
     h("div", { class: "form-grid" }, field("Kubeconfig", kc), field("Context", cx), field(withHelp("SSH jump hosts to devices", "jump"), j), field("SSH key file", id)),
+    h("label", { class: "check" }, direct, " Connect to devices directly, without a jump host",
+      d.jumps?.length ? h("span", { class: "muted small" }, ` (instead of ${d.jumps.join(", ")}, which Canopy was started with)`) : null),
     info?.error ? h("p", { class: "err small" }, info.error) : null),
     [{ label: "Save and reload", primary: true, value: "ok" }]);
   if (r !== "ok") return;
   try {
     opSettings = await opApi.saveSettings({
       kubeconfig: kc.value.trim() || undefined, context: cx.value || undefined,
-      jumps: j.value.split(",").map((s) => s.trim()).filter(Boolean), identityFiles: id.value.trim() ? [id.value.trim()] : [],
+      jumps: direct.checked ? [] : j.value.split(",").map((s) => s.trim()).filter(Boolean),
+      identityFiles: direct.checked || !id.value.trim() ? [] : [id.value.trim()],
+      direct: direct.checked || undefined,
     });
   } catch (e) { toast(errText(e), "err"); return; }
   loadCluster();

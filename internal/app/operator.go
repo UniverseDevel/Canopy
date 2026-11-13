@@ -67,6 +67,7 @@ func (s *Service) ConnectDevice(ctx context.Context, o OperatorOptions, ns, name
 	t.Insecure = false
 	t.SkipVerify = len(cr.CAPEM) == 0
 	t.Label = fmt.Sprintf("k8s:%s/%s", ns, name)
+	fromOptions := len(t.Jumps) == 0 && len(o.Jumps) > 0
 	if len(t.Jumps) == 0 {
 		t.Jumps, t.IdentityFiles = o.Jumps, o.IdentityFiles
 	}
@@ -75,6 +76,13 @@ func (s *Service) ConnectDevice(ctx context.Context, o OperatorOptions, ns, name
 	}
 	sess, err := s.Connect(ctx, t)
 	if err != nil {
+		// a jump host that fails is often one that doesn't belong here (a lab's,
+		// from the run configuration): say where it comes from
+		if e := apperr.As(err); fromOptions && e.Details["jumpHost"] != "" && e.Hint == "" {
+			e.Hint = fmt.Sprintf("the jump host %s comes from the cluster settings (⚙ in NetOp) or 'canopy ui --operator-jump'; "+
+				"change it there, or choose to connect directly", strings.Join(o.Jumps, ", "))
+			return nil, e
+		}
 		return nil, err
 	}
 	sess.Device = &DeviceRef{Namespace: ns, Name: name, Provider: cr.Provider}

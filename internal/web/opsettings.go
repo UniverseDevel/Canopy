@@ -21,6 +21,9 @@ type opSettings struct {
 	Context       string   `json:"context,omitempty"`
 	Jumps         []string `json:"jumps,omitempty"`
 	IdentityFiles []string `json:"identityFiles,omitempty"`
+	// Direct: reach devices without a jump host, even when 'canopy ui' was
+	// started with --operator-jump (an empty Jumps falls back to that).
+	Direct bool `json:"direct,omitempty"`
 }
 
 var opSettingsMu sync.Mutex
