@@ -237,6 +237,7 @@ func Detect(ctx context.Context, caps conn.Capabilities, read Reader) Detection 
 		}
 		d := Detection{Profile: p.ID, Vendor: p.Vendor, OS: p.OS, Source: p.Source, Provider: p.Operator.Provider, Reason: p.Name + ": " + why}
 		v := p.Version
+		nearestRel := "" // release of the newest known revision not after the device's
 		if fc := v.FromCapabilities; fc != nil {
 			for _, m := range caps.Models {
 				if moduleName(m.Name) != fc.Module {
@@ -244,8 +245,14 @@ func Detect(ctx context.Context, caps conn.Capabilities, read Reader) Detection 
 				}
 				if rel, ok := fc.Revisions[m.Version]; ok {
 					d.DeviceVersion = rel
-				} else {
-					d.Reason += "; unknown " + fc.Module + " revision " + m.Version
+					continue
+				}
+				d.Reason += "; unknown " + fc.Module + " revision " + m.Version
+				best := ""
+				for rev, rel := range fc.Revisions {
+					if rev <= m.Version && rev > best { // dates compare as strings
+						best, nearestRel = rev, rel
+					}
 				}
 			}
 		}
@@ -272,15 +279,20 @@ func Detect(ctx context.Context, caps conn.Capabilities, read Reader) Detection 
 				d.Reason += "; version not readable: " + errs[0]
 			}
 		}
-		if d.DeviceVersion != "" {
+		if d.DeviceVersion == "" && nearestRel != "" {
+			d.Want = p.Folder(nearestRel)
+			d.Reason += "; using the release of the nearest older revision, " + nearestRel
+		} else if d.DeviceVersion != "" {
 			d.Want = p.Folder(d.DeviceVersion)
 		}
-		d.newest = v.Newest
+		// Without a version, the newest release of the right platform is still far
+		// better than keeping another platform's models.
+		d.newest = v.Newest || d.Want == ""
 		switch {
 		case v.Newest:
 			d.Reason += "; using the newest release"
 		case d.Want == "":
-			d.Reason += "; pick the release"
+			d.Reason += "; version unknown, using the newest release (pick another if needed)"
 		}
 		return d
 	}

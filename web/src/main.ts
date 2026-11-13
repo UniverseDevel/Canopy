@@ -363,7 +363,8 @@ function renderDevices() {
           d.k8s ? h("span", { class: "tag " + (d.k8s.ready === "True" ? "tag-ok" : "tag-warn"), title: "Ready condition of the Device" }, d.k8s.ready === "True" ? "ready" : "not ready") : null,
           d.k8s?.paused ? h("span", { class: "tag tag-warn" }, "paused") : null),
         h("div", { class: "muted small dev-sub" }, sub),
-        d.state === "err" && d.error ? h("div", { class: "err small dev-sub", title: d.error }, d.error) : null),
+        d.state === "err" && d.error ? h("div", { class: "err small dev-sub dev-err", title: d.error + "\n\nClick for the full error in the Console" },
+          h("button", { class: "link small", onclick: (ev: Event) => { ev.stopPropagation(); consoleUI.reveal(); } }, "Failed: see Console"), " ", d.error) : null),
       edit, btn);
     row.title = [d.description, d.preset?.lastSeen ? `last connected ${new Date(d.preset.lastSeen.time).toLocaleString()}` : ""].filter(Boolean).join("\n");
     row.addEventListener("click", () => selectDevice(d));
@@ -765,14 +766,17 @@ async function modelsForSession(s: Session) {
     return;
   }
   setModelStatus("Detecting the platform…");
+  // When this device's models can't be loaded, say whose models the tree shows.
+  const stale = () => S.schema && schemaFor && schemaFor !== s.id
+    ? ` The tree still shows the models of ${S.sessions.find((x) => x.id === schemaFor)?.label ?? "another device"}; pick models for this device.` : "";
   try {
     const r = await modelsApi.auto(s.id);
     const d = r.detection;
-    if (r.error) { setModelStatus(errText(new ApiError(r.error, 0)), true); return; }
-    if (!d?.source) { setModelStatus(d?.reason ?? "Platform not recognized; pick models below", true); return; }
+    if (r.error) { setModelStatus(errText(new ApiError(r.error, 0)) + stale(), true); return; }
+    if (!d?.source) { setModelStatus((d?.reason ?? "Platform not recognized; pick models below.") + stale(), true); return; }
     if (!d.version) {
       await selectModelUI(d.source, "");
-      setModelStatus(`${d.reason}`, true);
+      setModelStatus(`${d.reason}.${stale()}`, true);
       return;
     }
     const note = d.exact ? `detected (device ${d.deviceVersion ?? ""})`.replace(" ()", "") : `nearest to ${d.want} (device ${d.deviceVersion ?? "?"})`;
@@ -782,7 +786,7 @@ async function modelsForSession(s: Session) {
     setModelStatus(`${name} ${d.version} · ${note}`);
     rememberModels({ kind: "set", source: d.source, version: d.version, note });
   } catch (e) {
-    setModelStatus(errText(e), true);
+    setModelStatus(errText(e) + stale(), true);
   }
 }
 
@@ -899,7 +903,11 @@ async function loadSchema() {
   }
 }
 
+// schemaFor is the session whose models are loaded (the server has one schema).
+let schemaFor = "";
+
 async function schemaLoaded(s: SchemaSummary) {
+  schemaFor = S.session?.id ?? "";
   S.schema = s;
   S.nodes.clear(); S.children.clear(); S.expanded.clear(); S.selected = -1;
   schemaInfo.className = "muted small";

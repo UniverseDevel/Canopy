@@ -461,3 +461,14 @@ main { grid-template-columns: var(--w-left, minmax(300px, 1fr)) 6px minmax(220px
 .tree-tools { flex-wrap: wrap; row-gap: 4px; }
 .tree-tools input[type=search] { flex: 1 1 150px; min-width: 150px; }
 .models-row select:first-of-type { flex-grow: 1.4; min-width: 90px; }
+
+/* console: resizable, open by default, failures flash */
+.console { position: relative; min-height: 80px; }
+.console-grip { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: row-resize; z-index: 2; }
+.console-grip:hover, body.dragging-y .console-grip { background: var(--accent); opacity: .6; }
+body.dragging-y { user-select: none; cursor: row-resize; }
+@keyframes flash-bg { 0%, 40% { background: color-mix(in srgb, var(--err) 28%, transparent); } 100% { background: color-mix(in srgb, var(--err) 7%, transparent); } }
+.centry.flash { animation: flash-bg 1.6s ease-out 2; }
+@keyframes flash-btn { 0%, 50% { color: var(--err); } 100% { color: var(--accent); } }
+footer .console-toggle.flash { animation: flash-btn .8s ease-in-out 3; }
+.dev-err .link { color: var(--err); text-decoration: underline; padding: 0; }

@@ -271,6 +271,7 @@ const T = {
     title: "Console", group: "Other",
     body: [
       "An audit log of everything the UI did with a device or cluster: connects, reads, changes, snapshots, pause/resume, fixture runs. Each entry has its result, its timing and the equivalent gNMIc or kubectl command; click a command to copy it.",
+      "It is open at the bottom by default; drag its top edge to resize it, or close it with ✕ (Canopy remembers both). When something fails, such as a connect, the console opens and the failed entry flashes, with the full error.",
       "The server keeps the log, so it survives a page reload, and appends it to `audit.jsonl` in Canopy's config folder.",
     ],
     related: ["command"],

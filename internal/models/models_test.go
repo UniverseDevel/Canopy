@@ -93,3 +93,17 @@ func TestDetectProfiles(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectUnknownVersion(t *testing.T) {
+	ctx := context.Background()
+	// a newer NX-OS revision than the profile knows: nearest older release
+	d := Detect(ctx, conn.Capabilities{Models: []conn.Model{{Name: "Cisco-NX-OS-device", Version: "2026-09-01"}}}, nil)
+	if d.Source != "nxos" || d.Want != "10.6-3" {
+		t.Errorf("nxos newer revision: %+v", d)
+	}
+	// no version at all: newest release of the right platform, not nothing
+	d = Detect(ctx, conn.Capabilities{Models: []conn.Model{{Name: "Cisco-IOS-XR-ifmgr-cfg"}}}, nil)
+	if d.Source != "iosxr" || d.Want != "" || !d.newest {
+		t.Errorf("iosxr without version: %+v", d)
+	}
+}
