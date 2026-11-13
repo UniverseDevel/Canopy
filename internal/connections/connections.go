@@ -51,10 +51,8 @@ type Connection struct {
 	// LastSeen is updated after each successful connection.
 	LastSeen *Seen `yaml:"lastSeen,omitempty" json:"lastSeen,omitempty"`
 
-	// Source is the file the preset came from; ReadOnly is set for presets from
-	// extra files (CANOPY_CONNECTIONS), which Canopy never writes.
-	Source   string `yaml:"-" json:"source,omitempty"`
-	ReadOnly bool   `yaml:"-" json:"readOnly,omitempty"`
+	// Source is the file the preset came from (and is saved back to).
+	Source string `yaml:"-" json:"source,omitempty"`
 	// PasswordStored says where a password is kept for it, if anywhere
 	// ("keychain" or "file"); filled in for the UI, never saved.
 	PasswordStored string `yaml:"-" json:"passwordStored,omitempty"`
@@ -73,12 +71,12 @@ type file struct {
 	Connections []Connection `yaml:"connections"`
 }
 
-// Store reads and writes the presets file. Extra files are read-only (for
-// example a team or lab file in a repository); presets in Path win on equal
-// names.
+// Store reads and writes the presets files. Every preset is edited and
+// deleted in the file it came from; new presets go to Path. On equal names the
+// earlier file wins (Path first).
 type Store struct {
-	Path  string
-	Extra []string
+	Path  string   // the main file: new presets are saved here
+	Extra []string // more files, edited in place like Path
 	mu    sync.Mutex
 }
 
@@ -96,29 +94,34 @@ func DefaultPath() string {
 	return filepath.Join(dir, "connections.yaml")
 }
 
-// ExtraFiles are read-only preset files added by the --connections flag; Open
-// includes them before those from $CANOPY_CONNECTIONS.
+// ExtraFiles are the connections files given with --connections; Open puts
+// them before those from $CANOPY_CONNECTIONS.
 var ExtraFiles []string
 
-// Open returns a store for path (DefaultPath if empty) with the extra read-only
-// files listed in $CANOPY_CONNECTIONS (separated like PATH).
+// Open returns a store for path. With an empty path it uses the files from
+// --connections and $CANOPY_CONNECTIONS (separated like PATH), the first one
+// being where new presets go, or DefaultPath when there are none.
 func Open(path string) *Store {
-	if path == "" {
-		path = DefaultPath()
-	}
-	s := &Store{Path: path, Extra: append([]string{}, ExtraFiles...)}
+	files := append([]string{}, ExtraFiles...)
 	for _, p := range filepath.SplitList(os.Getenv("CANOPY_CONNECTIONS")) {
 		if p = strings.TrimSpace(p); p != "" {
-			s.Extra = append(s.Extra, p)
+			files = append(files, p)
 		}
 	}
-	return s
+	if path == "" {
+		if len(files) == 0 {
+			return &Store{Path: DefaultPath()}
+		}
+		path, files = files[0], files[1:]
+	}
+	return &Store{Path: path, Extra: files}
 }
 
-func (s *Store) read() (*file, error) {
-	return readFile(s.Path)
-}
+func (s *Store) files() []string { return append([]string{s.Path}, s.Extra...) }
 
+// readFile reads a presets file (a missing one is empty). Relative file paths
+// in it (YANG folders, CA, certificates, keys) are resolved against the
+// file's folder, and Source is set to the file.
 func readFile(path string) (*file, error) {
 	f := &file{Version: 1}
 	data, err := os.ReadFile(path)
@@ -131,23 +134,7 @@ func readFile(path string) (*file, error) {
 	if err := yaml.Unmarshal(data, f); err != nil {
 		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "%s: %v", path, err)
 	}
-	return f, nil
-}
-
-// readExtra reads a read-only file. Relative file paths in it (YANG folders, CA,
-// certificates, keys) are resolved against the file's folder.
-func readExtra(path string) ([]Connection, error) {
-	if _, err := os.Stat(path); err != nil {
-		return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "connections file %s (from CANOPY_CONNECTIONS) not found", path)
-	}
-	f, err := readFile(path)
-	if err != nil {
-		return nil, err
-	}
-	dir := filepath.Dir(path)
-	if a, err := filepath.Abs(dir); err == nil {
-		dir = a
-	}
+	dir := fileDir(path)
 	abs := func(p string) string {
 		if p == "" || filepath.IsAbs(p) || strings.HasPrefix(p, "~") || strings.HasPrefix(p, `\\`) {
 			return p
@@ -156,65 +143,110 @@ func readExtra(path string) ([]Connection, error) {
 	}
 	for i := range f.Connections {
 		c := &f.Connections[i]
-		c.Source, c.ReadOnly = path, true
-		c.CAFile, c.CertFile, c.KeyFile = abs(c.CAFile), abs(c.CertFile), abs(c.KeyFile)
-		for j := range c.YangDirs {
-			c.YangDirs[j] = abs(c.YangDirs[j])
-		}
-		for j := range c.IdentityFiles {
-			c.IdentityFiles[j] = abs(c.IdentityFiles[j])
-		}
+		c.Source = path
+		mapPaths(c, abs)
 	}
-	return f.Connections, nil
+	return f, nil
 }
 
-func (s *Store) write(f *file) error {
-	sort.Slice(f.Connections, func(i, j int) bool { return f.Connections[i].Name < f.Connections[j].Name })
+func fileDir(path string) string {
+	dir := filepath.Dir(path)
+	if a, err := filepath.Abs(dir); err == nil {
+		dir = a
+	}
+	return dir
+}
+
+func mapPaths(c *Connection, f func(string) string) {
+	c.CAFile, c.CertFile, c.KeyFile = f(c.CAFile), f(c.CertFile), f(c.KeyFile)
+	for j := range c.YangDirs {
+		c.YangDirs[j] = f(c.YangDirs[j])
+	}
+	for j := range c.IdentityFiles {
+		c.IdentityFiles[j] = f(c.IdentityFiles[j])
+	}
+}
+
+// writeFile saves f to path. Paths inside the file's folder are written
+// relative to it, so a file kept next to its CA and keys can move with them.
+func writeFile(path string, f *file) error {
+	dir := fileDir(path)
+	rel := func(p string) string {
+		if !filepath.IsAbs(p) {
+			return p
+		}
+		if r, err := filepath.Rel(dir, p); err == nil && r != "." && !strings.HasPrefix(r, "..") && !filepath.IsAbs(r) {
+			return filepath.ToSlash(r)
+		}
+		return p
+	}
+	out := &file{Version: f.Version, Connections: make([]Connection, len(f.Connections))}
+	for i, c := range f.Connections {
+		c.Source = ""
+		c.YangDirs = append([]string(nil), c.YangDirs...)
+		c.IdentityFiles = append([]string(nil), c.IdentityFiles...)
+		mapPaths(&c, rel)
+		out.Connections[i] = c
+	}
+	sort.Slice(out.Connections, func(i, j int) bool { return out.Connections[i].Name < out.Connections[j].Name })
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	err := enc.Encode(f)
+	err := enc.Encode(out)
 	enc.Close()
 	data := buf.Bytes()
 	if err != nil {
 		return apperr.Wrap(apperr.ClassInternal, apperr.CodeInternal, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return apperr.Wrap(apperr.ClassUsage, apperr.CodeUsage, err)
 	}
-	tmp := s.Path + ".tmp"
+	tmp := path + ".tmp"
 	hdr := "# Canopy connection presets. Passwords are never stored here.\n"
 	if err := os.WriteFile(tmp, append([]byte(hdr), data...), 0o600); err != nil {
 		return apperr.Wrap(apperr.ClassUsage, apperr.CodeUsage, err)
 	}
-	if err := os.Rename(tmp, s.Path); err != nil {
+	if err := os.Rename(tmp, path); err != nil {
 		os.Remove(tmp)
 		return apperr.Wrap(apperr.ClassUsage, apperr.CodeUsage, err)
 	}
 	return nil
 }
 
+// find returns the file holding the preset name (the first one, as in List),
+// the parsed file and the preset's index; i is -1 if none has it.
+func (s *Store) find(name string) (path string, f *file, i int, err error) {
+	for _, p := range s.files() {
+		f, err := readFile(p)
+		if err != nil {
+			return "", nil, -1, err
+		}
+		for i := range f.Connections {
+			if strings.EqualFold(f.Connections[i].Name, name) {
+				return p, f, i, nil
+			}
+		}
+	}
+	return "", nil, -1, nil
+}
+
 // List returns all presets sorted by name.
 func (s *Store) List() ([]Connection, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f, err := s.read()
-	if err != nil {
-		return nil, err
-	}
 	out := []Connection{}
 	seen := map[string]bool{}
-	for _, c := range f.Connections {
-		c.Source = s.Path
-		out = append(out, c)
-		seen[strings.ToLower(c.Name)] = true
-	}
-	for _, x := range s.Extra {
-		cs, err := readExtra(x)
+	for k, p := range s.files() {
+		if k > 0 {
+			if _, err := os.Stat(p); err != nil {
+				return nil, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "connections file %s not found", p)
+			}
+		}
+		f, err := readFile(p)
 		if err != nil {
 			return nil, err
 		}
-		for _, c := range cs {
+		for _, c := range f.Connections {
 			if !seen[strings.ToLower(c.Name)] {
 				seen[strings.ToLower(c.Name)] = true
 				out = append(out, c)
@@ -257,70 +289,69 @@ func (c *Connection) Validate() error {
 	return nil
 }
 
-// Put saves c, replacing a preset with the same name (case-insensitive). The
+// Put saves c, replacing a preset with the same name (case-insensitive) in
+// the file that has it. A new preset goes to c.Source if that is one of the
+// store's files (a renamed preset stays in its file), else to Path. The
 // previous LastSeen is kept unless c has one.
 func (s *Store) Put(c Connection) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
-	c.Source, c.ReadOnly = "", false
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f, err := s.read()
+	path, f, i, err := s.find(c.Name)
 	if err != nil {
 		return err
 	}
-	for i := range f.Connections {
-		if strings.EqualFold(f.Connections[i].Name, c.Name) {
-			if c.LastSeen == nil {
-				c.LastSeen = f.Connections[i].LastSeen
-			}
-			f.Connections[i] = c
-			return s.write(f)
+	if i >= 0 {
+		if c.LastSeen == nil {
+			c.LastSeen = f.Connections[i].LastSeen
+		}
+		f.Connections[i] = c
+		return writeFile(path, f)
+	}
+	path = s.Path
+	for _, p := range s.files() {
+		if c.Source != "" && sameFile(p, c.Source) {
+			path = p
 		}
 	}
+	if f, err = readFile(path); err != nil {
+		return err
+	}
 	f.Connections = append(f.Connections, c)
-	return s.write(f)
+	return writeFile(path, f)
 }
 
-// Delete removes a preset.
+func sameFile(a, b string) bool {
+	x, err1 := filepath.Abs(a)
+	y, err2 := filepath.Abs(b)
+	return err1 == nil && err2 == nil && strings.EqualFold(x, y)
+}
+
+// Delete removes a preset from its file.
 func (s *Store) Delete(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f, err := s.read()
+	path, f, i, err := s.find(name)
 	if err != nil {
 		return err
 	}
-	for i := range f.Connections {
-		if strings.EqualFold(f.Connections[i].Name, name) {
-			f.Connections = append(f.Connections[:i], f.Connections[i+1:]...)
-			return s.write(f)
-		}
+	if i < 0 {
+		return apperr.New(apperr.ClassUsage, apperr.CodeNotFound, "no saved connection %q", name)
 	}
-	for _, x := range s.Extra {
-		cs, _ := readExtra(x)
-		for _, c := range cs {
-			if strings.EqualFold(c.Name, name) {
-				return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "connection %q comes from the read-only file %s; edit that file instead", name, x)
-			}
-		}
-	}
-	return apperr.New(apperr.ClassUsage, apperr.CodeNotFound, "no saved connection %q", name)
+	f.Connections = append(f.Connections[:i], f.Connections[i+1:]...)
+	return writeFile(path, f)
 }
 
 // Touch records a successful connection.
 func (s *Store) Touch(name string, seen Seen) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f, err := s.read()
-	if err != nil {
+	path, f, i, err := s.find(name)
+	if err != nil || i < 0 {
 		return err
 	}
-	for i := range f.Connections {
-		if strings.EqualFold(f.Connections[i].Name, name) {
-			f.Connections[i].LastSeen = &seen
-			return s.write(f)
-		}
-	}
-	return nil // read-only presets keep no history
+	f.Connections[i].LastSeen = &seen
+	return writeFile(path, f)
 }

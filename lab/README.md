@@ -50,9 +50,10 @@ nokia/srlinux-yang-models on first connect (or `canopy models fetch srlinux v26.
 
 ## Canopy presets and SSH jump host
 
-The repository has no connection presets: every lab looks different, so save your own
-(in the UI's device dialog, with `canopy conn save`, or in the file `canopy conn path`
-prints). The IDE run configurations `Lab - …` expect these three names:
+The IDE run configurations use `lab/connections.yaml` as Canopy's connections file
+(`--connections lab/connections.yaml`). It is yours and git-ignored: every lab looks
+different. Create it by saving devices in the UI (or with `canopy conn save`), or start
+from the example below. The `Lab - …` configurations expect these three names:
 
 | Preset | Path to the node |
 |---|---|
@@ -71,8 +72,8 @@ It creates the lab key `lab/.ssh/canopy_lab_ed25519` if missing and authorizes i
 first connection asks to trust the jump host's key (in the UI, or with
 `--accept-host-key <fingerprint> --save-host-key`); `jumphost` prints the fingerprint.
 
-An example for your presets file (replace `<repo>` with the absolute path of your
-checkout; passwords come from `GNMI_PASSWORD` or the keychain, never from this file):
+An example `lab/connections.yaml` (paths are relative to `lab/`; passwords come from
+`GNMI_PASSWORD`, the keychain or `connections.secrets.yaml`, never from this file):
 
 ```yaml
 version: 1
@@ -89,7 +90,7 @@ connections:
     description: SR Linux lab node, TLS verified against the containerlab CA
     tags: [lab, srlinux, tls]
     address: 127.0.0.1:57400
-    caFile: <repo>/lab/.tls/ca.pem      # exported by lab.sh (node, up, ca)
+    caFile: .tls/ca.pem                 # exported by lab.sh (node, up, ca)
     serverName: srl1.canopy-dev.io      # the certificate isn't valid for 127.0.0.1
     username: admin
     encoding: json_ietf
@@ -98,10 +99,10 @@ connections:
     description: SR Linux on its lab network address, through the WSL SSH jump host
     tags: [lab, srlinux, ssh]
     address: 172.20.20.2:57400
-    caFile: <repo>/lab/.tls/ca.pem      # the certificate is valid for 172.20.20.2
+    caFile: .tls/ca.pem                 # the certificate is valid for 172.20.20.2
     username: admin
     jumps: [canopy@127.0.0.1:2222]
-    identityFiles: [<repo>/lab/.ssh/canopy_lab_ed25519]
+    identityFiles: [.ssh/canopy_lab_ed25519]
     encoding: json_ietf
     paths: [/system/information, "/network-instance[name=mgmt]/interface"]
 ```

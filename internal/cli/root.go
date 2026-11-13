@@ -110,7 +110,7 @@ func newRoot(g *globals) *cobra.Command {
 	root.PersistentFlags().BoolVar(&g.nonInteractive, "non-interactive", false, "never prompt (also implied when stdin isn't a terminal)")
 	root.PersistentFlags().StringVar(&g.logLevel, "log-level", "", "log level: debug, info, warn, error")
 	root.PersistentFlags().StringVar(&g.logFile, "log-file", "", "write structured JSON logs to this file")
-	root.PersistentFlags().StringSliceVar(&g.connFiles, "connections", nil, "extra read-only saved-connections file(s), e.g. a team file (also $CANOPY_CONNECTIONS)")
+	root.PersistentFlags().StringSliceVar(&g.connFiles, "connections", nil, "saved-connections file(s) to use instead of the one in the user config folder; new presets go to the first (also $CANOPY_CONNECTIONS)")
 	root.AddCommand(newVersionCmd(g), newConnCmd(g), newModelsCmd(g), newSetCmd(g), newSnapshotCmd(g), newShadowCmd(g), newOperatorCmd(g), newFixtureCmd(g), newProxyCmd(g), newConnectCmd(g), newGetCmd(g), newTreeCmd(g), newGenerateCmd(g), newUICmd(g), newTUICmd(g))
 	return root
 }

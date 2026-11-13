@@ -439,9 +439,8 @@ func (s *Server) connList(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, list)
 }
 
-// connPassword stores (or forgets) the password of any saved connection,
-// read-only ones included: in the OS keychain or in the encrypted file next to
-// its connections file.
+// connPassword stores (or forgets) the password of a saved connection: in the
+// OS keychain or in the encrypted file next to its connections file.
 func (s *Server) connPassword(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name     string `json:"name"`

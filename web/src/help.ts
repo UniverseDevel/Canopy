@@ -25,9 +25,9 @@ const T = {
   devices: {
     title: "Devices", group: "Devices",
     body: [
-      "The devices you can connect to: saved presets, ones added in this session, and the lab presets Canopy was started with. Several can be connected at once; click a connected device to switch to it. Each keeps its own paths, data and models.",
+      "The devices you can connect to: the ones saved in your connections file, plus any connected without saving (tagged \"not saved\", gone when Canopy restarts). Several can be connected at once; click a connected device to switch to it. Each keeps its own paths, data and models.",
       "Connections live in Canopy's server, not in the page, so reloading the page keeps them.",
-      "Pencil edits a saved device; a read-only preset (from a team or lab file) can be copied into a new one.",
+      "Pencil edits a device: change it, rename it or delete it. Every change is written to the connections file it came from.",
     ],
     related: ["connect", "cluster", "models"],
     cli: "canopy conn list",
@@ -68,7 +68,7 @@ const T = {
         "OS keychain: macOS Keychain, Windows Credential Manager or Secret Service on Linux.",
         "Encrypted file: next to the device's connections file (`connections.yaml` → `connections.secrets.yaml`), encrypted with AES-256-GCM. The key is in this computer's OS keychain, so the file is useless elsewhere. Canopy makes sure git ignores it (it adds `*.secrets.yaml` to a .gitignore when needed).",
       ],
-      "Works for read-only devices too, such as the lab ones. When a password is asked for while connecting, you can choose to remember it once it works. Storing it in one place removes it from the other; Forget removes it.",
+      "When a password is asked for while connecting, you can choose to remember it once it works. Storing it in one place removes it from the other; Forget removes it.",
     ],
     related: ["connect"],
     cli: "canopy conn password NAME --store file",

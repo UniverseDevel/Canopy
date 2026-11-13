@@ -228,7 +228,7 @@ names the environment variable with that device's password (default `GNMI_PASSWO
 Opt-in, a password can be remembered in the OS keychain, or in an encrypted file next
 to the connections file (`connections.yaml` → `connections.secrets.yaml`,
 AES-256-GCM with a key kept in this computer's keychain; git-ignored, and Canopy adds
-`*.secrets.yaml` to a `.gitignore` if needed). It works for presets from read-only files too:
+`*.secrets.yaml` to a `.gitignore` if needed):
 
 ```bash
 canopy conn password lab-srl1 --store file
@@ -237,11 +237,13 @@ canopy conn password lab-srl1 --store file
 In the UI the device dialog has **Remember the typed password**, and the password prompt
 offers to remember it once the connect works.
 
-Presets live in `canopy conn path` (the user config folder, or `$CANOPY_CONFIG_DIR`).
-Extra read-only preset files, for example a team file, are added with
-`--connections FILE` or `CANOPY_CONNECTIONS` (separated like `PATH`); relative paths in them resolve against the
-file's folder. The repository has no presets of its own: every lab looks different, so
-each developer saves their own (the lab README has an example).
+Presets live in the user config folder (or `$CANOPY_CONFIG_DIR`), or in the file given
+with `--connections FILE` or `CANOPY_CONNECTIONS`; `canopy conn path` prints it. Several
+files can be given (separated like `PATH`): new presets go to the first, and every
+preset is edited and deleted in the file it came from. Relative paths in a file
+resolve against its folder, and paths inside that folder are written back relative.
+The connections file is personal: the repository has none, and `lab/connections.yaml`
+(which the IDE configurations use) is git-ignored, like the `*.secrets.yaml` next to it.
 
 **Git Bash on Windows** rewrites arguments that start with `/` into Windows paths
 (`/system` becomes `C:/Program Files/Git/system`). Run with `MSYS_NO_PATHCONV=1`, or
@@ -255,18 +257,18 @@ automatically:
 | Configuration | What it does |
 |---|---|
 | Build canopy | Builds `bin/canopy` and prints the version |
-| Canopy UI | Starts the UI with your own presets in the Devices list |
+| Canopy UI | Starts the UI with `lab/connections.yaml` (yours, git-ignored) as the connections file |
 | Canopy UI (rebuild web) | Same, after rebuilding the frontend (needs Node.js and `npm ci` in `web/`) |
 | All tests | `go test ./...` |
 | Web build / watch / check | Frontend build, rebuild on change, type check |
 | Lab - list connections | Lists your presets |
-| Lab - connect lab-srl1 / -verified / -jump | Connects with each lab preset (saved in your own presets, see the lab README): TLS skip-verify, TLS verified with the lab CA, through the SSH jump host |
+| Lab - connect lab-srl1 / -verified / -jump | Connects with each lab preset (see the lab README): TLS skip-verify, TLS verified with the lab CA, through the SSH jump host |
 | Lab - get lab-srl1 | Reads the preset's favourite paths |
 | Lab - tree find login-banner | Schema search in the SR Linux models (downloaded on first use) |
 
-The UI and Lab configurations set `GNMI_PASSWORD` to the SR Linux lab default. The
-`Lab - …` ones expect presets named `lab-srl1`, `lab-srl1-verified` and `lab-srl1-jump`
-in your own presets.
+The UI and Lab configurations pass `--connections lab/connections.yaml` and set
+`GNMI_PASSWORD` to the SR Linux lab default. The `Lab - …` ones expect presets named
+`lab-srl1`, `lab-srl1-verified` and `lab-srl1-jump` in that file.
 
 The IDE needs the Go plugin (built into GoLand); the `Web` configurations need the
 JavaScript plugin (IntelliJ IDEA Ultimate, GoLand, WebStorm).

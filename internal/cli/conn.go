@@ -28,9 +28,10 @@ GNMI_PASSWORD), or keep it, opt-in, in the OS keychain or in an encrypted file
 next to its connections file (<name>.secrets.yaml, git-ignored, key in the
 keychain): see 'canopy conn password'.
 
-Your presets live in the user config folder ('canopy conn path'). Extra read-only
-files can be added with CANOPY_CONNECTIONS (separated like PATH), for example a
-team file.`,
+Your presets live in the user config folder, or in the file(s) given with
+--connections or CANOPY_CONNECTIONS (separated like PATH): new presets go to the
+first one, and every preset is edited and deleted in the file it came from.
+'canopy conn path' prints the files.`,
 	}
 	c.AddCommand(newConnListCmd(g), newConnShowCmd(g), newConnSaveCmd(g), newConnRmCmd(g), newConnPathCmd(g), newConnPasswordCmd(g), &cobra.Command{
 		Use: "forget-password NAME", Short: "Remove a stored password (keychain and encrypted file)", Args: cobra.ExactArgs(1),
@@ -65,11 +66,7 @@ func newConnListCmd(g *globals) *cobra.Command {
 					if len(c.Jumps) > 0 {
 						via = " via " + strings.Join(c.Jumps, ",")
 					}
-					ro := ""
-					if c.ReadOnly {
-						ro = " (read-only)"
-					}
-					fmt.Fprintf(w, "%-24s %s%s%s\n", c.Name, c.Address, via, ro)
+					fmt.Fprintf(w, "%-24s %s%s\n", c.Name, c.Address, via)
 					if c.Description != "" {
 						fmt.Fprintf(w, "%-24s %s\n", "", c.Description)
 					}
@@ -220,10 +217,10 @@ func newConnPathCmd(g *globals) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s := g.presets()
-			return g.result(cmd, map[string]any{"file": s.Path, "readOnly": s.Extra}, func(w io.Writer) {
+			return g.result(cmd, map[string]any{"file": s.Path, "more": s.Extra}, func(w io.Writer) {
 				fmt.Fprintln(w, s.Path)
 				for _, x := range s.Extra {
-					fmt.Fprintf(w, "%s (read-only, from CANOPY_CONNECTIONS)\n", x)
+					fmt.Fprintln(w, x)
 				}
 			})
 		},
@@ -235,8 +232,7 @@ func newConnPasswordCmd(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "password NAME",
 		Short: "Remember a saved connection's password (keychain or encrypted file)",
-		Long: `Stores the password for a saved connection, including read-only ones from
-CANOPY_CONNECTIONS files, from GNMI_PASSWORD or a prompt.
+		Long: `Stores the password for a saved connection, from GNMI_PASSWORD or a prompt.
 
 --store keychain (default) keeps it in the OS keychain. --store file keeps it in
 an encrypted file next to the connection's file (connections.yaml ->

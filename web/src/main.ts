@@ -358,14 +358,14 @@ function renderDevices() {
       onclick: (e: Event) => { e.stopPropagation(); on ? disconnectDevice(d) : connectDevice(d); },
     }, d.state === "busy" ? "⋯" : on ? "■" : "▶");
     const edit = d.k8s ? h("span", { class: "icon-spacer" }) : h("button", {
-      class: "small icon", title: d.preset?.readOnly ? "Copy into a new device" : "Edit",
+      class: "small icon", title: "Edit",
       onclick: (e: Event) => { e.stopPropagation(); openDeviceDialog(d); },
     }, "✎");
     const sub = d.target.address + (d.target.jumps?.length ? ` via ${d.target.jumps.join(", ")}` : "");
     const row = h("div", { class: "device" + (d.key === selectedKey ? " sel" : "") + (on ? " on" : "") },
       h("span", { class: "dot " + d.state, title: { off: "not connected", busy: "connecting", on: "connected", err: "error" }[d.state] }),
       h("div", { class: "dev-main" },
-        h("div", { class: "dev-name" }, d.name, d.preset?.readOnly ? h("span", { class: "tag" }, "lab/team") : null,
+        h("div", { class: "dev-name" }, d.name,
           !d.preset && !d.k8s ? h("span", { class: "tag" }, "not saved") : null,
           d.k8s ? h("span", { class: "tag " + (d.k8s.ready === "True" ? "tag-ok" : "tag-warn"), title: "Ready condition of the Device" }, d.k8s.ready === "True" ? "ready" : "not ready") : null,
           d.k8s?.paused ? h("span", { class: "tag tag-warn" }, "paused") : null),
@@ -498,7 +498,7 @@ async function connectDevice(d: Device) {
         selectedKey = d.key;
         renderDevices();
         await activate(s.id);
-        if (d.preset && !d.preset.readOnly) loadDevices(); // refresh "last connected"
+        if (d.preset) loadDevices(); // refresh "last connected"
         return;
       } catch (e) {
         if (!(e instanceof ApiError)) throw e;
@@ -548,12 +548,13 @@ async function disconnectDevice(d: Device) {
   renderDevices();
 }
 
-// openDeviceDialog adds a device, or edits one (copy for read-only presets).
+// openDeviceDialog adds a device or edits one. Saved devices live in the
+// connections file; "Connect without saving" makes a temporary one.
 async function openDeviceDialog(edit?: Device) {
   const p = edit?.preset;
   const t = edit?.target;
   const v = (x?: string) => x ?? "";
-  const name = h("input", { value: edit ? (p?.readOnly ? `${edit.name}-copy` : edit.name) : "", placeholder: "e.g. leaf1 (optional unless saved)" });
+  const name = h("input", { value: edit ? edit.name : "", placeholder: "e.g. leaf1 (the target if empty)" });
   const address = h("input", { value: v(t?.address), placeholder: "host:port, e.g. 10.0.0.5:57400" });
   const tls = h("select", {},
     h("option", { value: "verify" }, "TLS, verify certificate"),
@@ -590,7 +591,6 @@ async function openDeviceDialog(edit?: Device) {
   };
   modelSrc.addEventListener("change", fillVersions);
   if (modelSrc.value) fillVersions();
-  const save = h("input", { type: "checkbox", checked: !!p && !p.readOnly });
   const pwEnv = h("input", { value: v(p?.passwordEnv), placeholder: "GNMI_PASSWORD" });
   const remember = rememberSelect(p?.passwordStored);
   const forget = h("input", { type: "checkbox" });
@@ -598,29 +598,25 @@ async function openDeviceDialog(edit?: Device) {
   const rememberFields = h("div", { class: "form" },
     h("div", { class: "form-grid" }, field(withHelp("Remember the typed password", "keychain"), remember, stored || "Never in the connections file itself.")),
     p?.passwordStored ? h("label", { class: "check" }, forget, ` Forget the password stored in ${storeName(p.passwordStored)}`) : null);
-  const saveFields = h("div", { class: "form" },
-    h("div", { class: "form-grid" },
-      field("Description", desc), field("Password environment variable", pwEnv, "Used when no password is typed.")));
-  // A read-only preset (lab file) can't be edited, but its password can be remembered.
-  const syncSave = () => { saveFields.hidden = !save.checked; rememberFields.hidden = !save.checked && !p; };
-  save.addEventListener("change", syncSave);
-  syncSave();
   const body = h("div", { class: "form" },
     h("div", { class: "form-grid" },
       field("Name", name), field(withHelp("Target", "connect"), address), field(withHelp("Security", "tls"), tls), field("Timeout (s)", timeout),
       field("CA file", ca), field("TLS server name", serverName), field("Username", username), field("Password", password),
       field(withHelp("SSH jump hosts", "jump"), jumps, "comma-separated chain"), field("SSH key file", identity),
-      field(withHelp("YANG models", "models"), modelSrc), field("Model version", modelVer)),
-    h("label", { class: "check" }, save, " Save this device (passwords never go into the file)"),
-    saveFields, rememberFields);
-  const buttons = [{ label: "Connect", primary: true, value: "connect" }, { label: "Add to list", value: "add" }];
-  const removable = edit && (!edit.preset || !edit.preset.readOnly);
-  if (removable) buttons.push({ label: edit!.preset ? "Delete saved device" : "Remove", value: "remove" });
-  const title = !edit ? "Connect device" : p?.readOnly ? `New device from “${edit.name}”` : `Edit “${edit.name}”`;
+      field(withHelp("YANG models", "models"), modelSrc), field("Model version", modelVer),
+      field("Description", desc), field("Password environment variable", pwEnv, "Used when no password is typed.")),
+    rememberFields,
+    h("p", { class: "muted small" }, p?.source ? `Saved in ${p.source}. Passwords never go into that file.` : "Saved devices go into your connections file. Passwords never go into it."));
+  const buttons = [{ label: "Save and connect", primary: true, value: "connect" }, { label: "Save", value: "save" }];
+  if (!p) buttons.push({ label: "Connect without saving", value: "once" });
+  if (edit) buttons.push({ label: p ? "Delete" : "Remove", value: "remove" });
+  const title = !edit ? "Connect device" : `Edit “${edit.name}”`;
   for (;;) {
     const r = await modal(title, body, buttons);
     if (r === null) return;
     if (r === "remove") {
+      if (p && (await modal(`Delete “${p.name}”?`, h("p", {}, `It is removed from ${p.source ?? "your connections file"}.`),
+        [{ label: "Delete", primary: true, value: "yes" }])) !== "yes") continue;
       if (edit!.session) await disconnectDevice(edit!);
       if (edit!.preset) {
         try { await api.deletePreset(edit!.preset.name); } catch (e) { toast(errText(e), "err"); return; }
@@ -630,7 +626,7 @@ async function openDeviceDialog(edit?: Device) {
       return;
     }
     if (!address.value.trim()) { toast("Enter a target address", "err"); continue; }
-    if (save.checked && !name.value.trim()) { toast("A saved device needs a name", "err"); continue; }
+    const save = r !== "once";
     const jl = jumps.value.split(",").map((s) => s.trim()).filter(Boolean);
     const tgt: Target = {
       address: address.value.trim(), insecure: tls.value === "plain", skipVerify: tls.value === "skip",
@@ -641,9 +637,10 @@ async function openDeviceDialog(edit?: Device) {
     };
     const models = modelSrc.value && modelVer.value ? `${modelSrc.value}@${modelVer.value}` : undefined;
     let d: Device;
-    if (save.checked) {
+    if (save) {
       const preset: Preset = {
-        name: name.value.trim(), description: desc.value.trim() || undefined, passwordEnv: pwEnv.value.trim() || undefined,
+        ...(p ?? {}), // fields the dialog doesn't show (encoding, client certificate, ...) stay as they are
+        name: name.value.trim() || tgt.address.replace(/[^A-Za-z0-9 ._/-]/g, "_"), source: p?.source, description: desc.value.trim() || undefined, passwordEnv: pwEnv.value.trim() || undefined,
         address: tgt.address, insecure: tgt.insecure, skipVerify: tgt.skipVerify, caFile: tgt.caFile, serverName: tgt.serverName,
         username: tgt.username, timeoutSec: tgt.timeoutSec, jumps: tgt.jumps, identityFiles: tgt.identityFiles,
         models, paths: edit?.paths, yangDirs: edit?.yangDirs, tags: p?.tags,
@@ -652,7 +649,7 @@ async function openDeviceDialog(edit?: Device) {
         if (remember.value && !password.value) { toast("Type the password to remember", "err"); continue; }
         const saved = await api.savePreset(preset, { password: remember.value ? password.value : undefined, rememberPassword: !!remember.value, passwordStore: remember.value || undefined, forgetPassword: forget.checked });
         if (remember.value) toast(`Password stored in ${storeName(remember.value)}`);
-        if (p && !p.readOnly && p.name !== saved.name) await api.deletePreset(p.name).catch(() => {}); // renamed
+        if (p && p.name.toLowerCase() !== saved.name.toLowerCase()) await api.deletePreset(p.name).catch(() => {}); // renamed
         if (edit && !edit.preset) devices.splice(devices.indexOf(edit), 1); // unsaved device became saved
         await loadDevices();
         d = devices.find((x) => x.key === "p:" + saved.name)!;
@@ -660,15 +657,6 @@ async function openDeviceDialog(edit?: Device) {
         toast(errText(e), "err");
         continue;
       }
-    } else if (p && (remember.value || forget.checked)) {
-      // not saved as a new device: remember (or forget) the password of the preset itself
-      if (remember.value && !forget.checked && !password.value) { toast("Type the password to remember", "err"); continue; }
-      try {
-        const res = await api.presetPassword(forget.checked ? { name: p.name, forget: true } : { name: p.name, password: password.value, store: remember.value });
-        toast(`Password ${res.message}`);
-        await loadDevices();
-      } catch (e) { toast(errText(e), "err"); continue; }
-      d = devices.find((x) => x.key === "p:" + p.name) ?? edit!;
     } else if (edit && !edit.preset) {
       d = edit;
       Object.assign(d, { name: name.value.trim() || tgt.address, target: tgt, models, description: desc.value.trim() || undefined });
@@ -679,7 +667,7 @@ async function openDeviceDialog(edit?: Device) {
     if (password.value) d.password = password.value;
     selectedKey = d.key;
     renderDevices();
-    if (r === "connect") await connectDevice(d);
+    if (r === "connect" || r === "once") await connectDevice(d);
     return;
   }
 }

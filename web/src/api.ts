@@ -31,7 +31,7 @@ export interface Preset {
   serverName?: string; username?: string; passwordEnv?: string; timeoutSec?: number;
   jumps?: string[]; identityFiles?: string[]; encoding?: string; yangDirs?: string[]; paths?: string[]; models?: string;
   lastSeen?: { time: string; gnmiVersion?: string; encodings?: string[]; models: number };
-  source?: string; readOnly?: boolean; passwordStored?: "keychain" | "file";
+  source?: string; passwordStored?: "keychain" | "file";
 }
 
 export interface TypeInfo {
