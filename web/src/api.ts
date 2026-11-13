@@ -192,11 +192,14 @@ export interface RepoInfo { current?: string; recent: string[]; inUse?: string; 
 
 export interface OpOptions { kubeconfig?: string; context?: string; jumps?: string[]; identityFiles?: string[]; operatorRepo?: string; timeoutSec?: number; direct?: boolean }
 export interface Condition { type: string; status: string; reason?: string; message?: string }
-export interface K8sDevice { namespace: string; name: string; provider: string; address: string; phase?: string; paused: boolean; ready: string; conditions: Condition[]; tls: boolean }
+export interface K8sDevice { namespace: string; name: string; provider: string; address: string; phase?: string; paused: boolean; ready: string; conditions: Condition[]; tls: boolean; hostname?: string; manufacturer?: string; model?: string; firmware?: string }
 export interface K8sResource { kind: string; resource: string; version?: string; namespace: string; name: string; ready: string; paused: boolean; conditions: Condition[]; spec?: Record<string, unknown>; generation: number; observedGeneration: number }
 export interface Sample { id: string; file: string; vendor: string; kind: string; name: string; apiVersion: string; secrets?: string[]; yaml: string; applied: boolean; otherDevice?: string; notServed?: boolean }
-export interface VerifyLeaf { path: string; expected?: unknown; actual?: unknown; status: string; from?: string }
-export interface Verification { resource: K8sResource; device: string; fixture: string; mode: string; verdict: string; reasons: string[]; leaves: VerifyLeaf[]; alternates?: string[]; elapsedMs: number }
+export interface VerifyLeaf { path: string; expected?: unknown; actual?: unknown; status: string; from?: string; fixturePath?: string; fixtureValue?: unknown }
+export interface Verification {
+  resource: K8sResource; device: string; fixture: string; mode: string; verdict: string; reasons: string[]; leaves: VerifyLeaf[]; alternates?: string[]; elapsedMs: number;
+  address?: string; jumps?: string[]; provider?: string; fixtureDir?: string; fixtureFile?: string; deviceInfo?: K8sDevice;
+}
 
 export const opApi = {
   samples: (options: OpOptions, namespace: string, device: string, provider: string) =>

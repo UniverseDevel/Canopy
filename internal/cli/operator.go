@@ -205,6 +205,12 @@ Exit code 0 = pass, 3 = fail.`,
 			}
 			if err := g.result(cmd, v, func(w io.Writer) {
 				fmt.Fprintf(w, "%s %s/%s on %s (fixture %s, %s): %s\n", v.Resource.Kind, f.ns, args[1], v.Device, v.Fixture, v.Mode, strings.ToUpper(v.Verdict))
+				route := "directly"
+				if len(v.Jumps) > 0 {
+					route = "via " + strings.Join(v.Jumps, ", ")
+				}
+				fmt.Fprintf(w, "  device   %s, %s (provider %s)\n", v.Address, route, v.Provider)
+				fmt.Fprintf(w, "  fixture  %s\n", v.FixtureFile)
 				for _, l := range v.Leaves {
 					from := ""
 					if l.From != "" {
@@ -217,6 +223,9 @@ Exit code 0 = pass, 3 = fail.`,
 						fmt.Fprintf(w, "  %-8s %s\n", l.Status, l.Path)
 					default:
 						fmt.Fprintf(w, "  %-8s %s = %s (device: %s)%s\n", l.Status, l.Path, format.Scalar(l.Expected), format.Scalar(l.Actual), from)
+					}
+					if l.FixturePath != "" && l.FixturePath != l.Path {
+						fmt.Fprintf(w, "  %-8s (in the fixture: %s)\n", "", l.FixturePath)
 					}
 				}
 				for _, r := range v.Reasons {

@@ -59,10 +59,13 @@ func TestBannerExpected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(leaves) != 1 || leaves[0].Path != "/system/banner/login-banner" || leaves[0].Value != "Welcome to the lab" || leaves[0].From != "message.inline" {
+	if len(leaves) != 1 || leaves[0].Path != "/srl_nokia-system:system/srl_nokia-system-banner:banner/login-banner" || leaves[0].Value != "Welcome to the lab" || leaves[0].From != "message.inline" {
 		t.Errorf("leaves %+v", leaves)
 	}
-	if len(gone) != 1 || gone[0] != "/system/banner/login-banner" {
+	if leaves[0].FixturePath != "/srl_nokia-system:system/srl_nokia-system-banner:banner/login-banner" || leaves[0].FixtureValue == "Welcome to the lab" {
+		t.Errorf("fixture side %+v", leaves[0])
+	}
+	if len(gone) != 1 || gone[0].Path != "/srl_nokia-system:system/srl_nokia-system-banner:banner/login-banner" {
 		t.Errorf("gone %v", gone)
 	}
 }
@@ -148,5 +151,34 @@ func TestRepoChoice(t *testing.T) {
 	c, _ = Forget(fork)
 	if c.Current != "" || len(c.Recent) != 1 {
 		t.Errorf("after forget %+v", c)
+	}
+}
+
+// The operator sends paths with their module prefixes, and devices may pick
+// the model by them (SR Linux: "openconfig-system:system" is OpenConfig,
+// "system" is native), so Verify must read the same paths.
+func TestTouchedKeepsModulePrefixes(t *testing.T) {
+	f, err := ParseBytes("banner.txtar", []byte(`# Banner
+-- banners/banner --
+kind: Banner
+metadata: {name: banner}
+spec: {message: {inline: "hi"}}
+-- state/preload --
+{}
+-- state/expect --
+{"openconfig-system:system": {"config": {"login-banner": "hi"}}}
+-- state/delete --
+{"openconfig-system:system": {"config": {}}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, removed := f.Touched()
+	want := "/openconfig-system:system/config/login-banner"
+	if len(applied) != 1 || applied[0].Path != want {
+		t.Errorf("applied %+v", applied)
+	}
+	if len(removed) != 1 || removed[0] != want {
+		t.Errorf("removed %v", removed)
 	}
 }

@@ -128,6 +128,9 @@ type VerifyLeaf struct {
 	Actual   any    `json:"actual,omitempty"`
 	Status   string `json:"status"` // ok, mismatch, missing; after delete: ok (gone), other (a value the resource doesn't set), present
 	From     string `json:"from,omitempty"`
+	// the leaf as the fixture has it, before the resource's values were put in
+	FixturePath  string `json:"fixturePath,omitempty"`
+	FixtureValue any    `json:"fixtureValue,omitempty"`
 }
 
 // Verification is the QA verdict for one resource.
@@ -141,6 +144,14 @@ type Verification struct {
 	Leaves     []VerifyLeaf `json:"leaves"`
 	Alternates []string     `json:"alternates,omitempty"` // other fixtures for the kind
 	ElapsedMs  int64        `json:"elapsedMs"`
+
+	// What decided what was checked, and where.
+	Address     string      `json:"address,omitempty"`     // the device address Canopy read from
+	Jumps       []string    `json:"jumps,omitempty"`       // SSH jump hosts on the way; none: direct
+	Provider    string      `json:"provider,omitempty"`    // the Device's spec.provider
+	FixtureDir  string      `json:"fixtureDir,omitempty"`  // the provider's folder in the checkout
+	FixtureFile string      `json:"fixtureFile,omitempty"` // the fixture's full path
+	DeviceInfo  *k8s.Device `json:"deviceInfo,omitempty"`  // the Device as the operator reports it
 }
 
 // Verify checks a resource against the device behind a session: the leaves the
@@ -163,7 +174,12 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 	if err != nil {
 		return nil, err
 	}
-	v := &Verification{Device: sess.Label, Mode: "applied", Reasons: []string{}, Leaves: []VerifyLeaf{}}
+	v := &Verification{Device: sess.Label, Mode: "applied", Reasons: []string{}, Leaves: []VerifyLeaf{},
+		Address: sess.Address, Jumps: sess.Jumps, Provider: sess.Device.Provider}
+	if u, err := cl.Device(ctx, sess.Device.Namespace, sess.Device.Name); err == nil {
+		d := k8s.ToDevice(u)
+		v.DeviceInfo = &d
+	}
 	var spec map[string]any
 	if deleted {
 		v.Mode = "deleted"
@@ -182,7 +198,8 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 	if err != nil {
 		return nil, err
 	}
-	all, err := fixtures.Load(fixtures.Dir(repo, sess.Device.Provider))
+	v.FixtureDir = fixtures.Dir(repo, sess.Device.Provider)
+	all, err := fixtures.Load(v.FixtureDir)
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +219,7 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 			WithHint("the provider may not support this kind")
 	}
 	v.Fixture = fx.File
+	v.FixtureFile = filepath.Join(v.FixtureDir, fx.File)
 	k := v.Resource.Kind
 	if k == "" {
 		k = kind
@@ -237,15 +255,18 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 			set[l.Path] = l
 		}
 		check = nil
-		for _, p := range gone {
-			l := set[p]
-			l.Path = p
+		for _, g := range gone {
+			l := set[g.Path]
+			l.Path, l.FixturePath = g.Path, g.FixturePath
+			if l.From == "" {
+				l.From = g.From
+			}
 			check = append(check, l)
 		}
 	}
 	for _, l := range check {
 		actual, found, err := readLeaf(ctx, s, id, l.Path)
-		vl := VerifyLeaf{Path: l.Path, Expected: l.Value, From: l.From, Actual: actual}
+		vl := VerifyLeaf{Path: l.Path, Expected: l.Value, From: l.From, Actual: actual, FixturePath: l.FixturePath, FixtureValue: l.FixtureValue}
 		switch {
 		case err != nil:
 			vl.Status, vl.Actual = "error", apperr.As(err).Message

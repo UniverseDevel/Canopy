@@ -157,7 +157,7 @@ const fxTab = fixturesTab({
   toSnapshots: () => showTab("Snapshots"),
 });
 const opTab = operatorTab({
-  device: () => { const d = selectedCluster(); return d?.k8s ? { ...d.k8s, connected: !!d.session } : null; },
+  device: () => { const d = selectedCluster(); return d?.k8s ? { ...d.k8s, connected: !!d.session, route: d.session ? (d.session.jumps?.length ? `via ${d.session.jumps.join(", ")}` : "directly") : undefined } : null; },
   session: async () => { const d = selectedCluster(); if (d && !d.session) await connectDevice(d, false); return d?.session ?? null; },
   browse: async () => { const d = selectedCluster(); if (!d) return; if (!d.session) await connectDevice(d, false); if (d.session) { setWorkspace("devices"); await selectDevice(d); } },
   disconnect: async () => { const d = selectedCluster(); if (d) await disconnectDevice(d); },
@@ -358,7 +358,7 @@ interface Device {
   state: "off" | "busy" | "on" | "err";
   error?: string;
   password?: string;
-  k8s?: { namespace: string; name: string; ready: string; paused: boolean; provider: string; tls?: boolean };
+  k8s?: { namespace: string; name: string; ready: string; paused: boolean; provider: string; tls?: boolean; address?: string; hostname?: string; manufacturer?: string; model?: string; firmware?: string };
 }
 const devices: Device[] = [];
 let selectedKey = "";
@@ -547,7 +547,8 @@ async function loadCluster(): Promise<string> {
       Object.assign(d, {
         name: `${x.namespace}/${x.name}`, target: { address: x.address, jumps: clusterJumps() },
         description: `${x.provider}\nphase ${x.phase ?? "?"}`,
-        k8s: { namespace: x.namespace, name: x.name, ready: x.ready, paused: x.paused, provider: x.provider, tls: x.tls },
+        k8s: { namespace: x.namespace, name: x.name, ready: x.ready, paused: x.paused, provider: x.provider, tls: x.tls, address: x.address,
+          hostname: x.hostname, manufacturer: x.manufacturer, model: x.model, firmware: x.firmware },
       });
       devices.push(d);
     }

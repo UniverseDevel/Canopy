@@ -13,7 +13,6 @@ import (
 
 	"github.com/UniverseDevel/Canopy/internal/apperr"
 	"github.com/UniverseDevel/Canopy/internal/live"
-	"github.com/UniverseDevel/Canopy/internal/snapshot"
 	"golang.org/x/tools/txtar"
 	"gopkg.in/yaml.v3"
 )
@@ -171,26 +170,50 @@ type Leaf struct {
 	Value any    `json:"value"`
 	// From names the spec field the value (or a key in the path) came from.
 	From string `json:"from,omitempty"`
+	// FixturePath and FixtureValue are the leaf as the fixture has it, before
+	// the live resource's values were put in.
+	FixturePath  string `json:"fixturePath,omitempty"`
+	FixtureValue any    `json:"fixtureValue,omitempty"`
 }
 
 // Touched returns the leaves the fixture's resources add or change on the
-// device (expect minus preload), and the ones removed again on delete.
+// device (expect minus preload), and the ones removed again on delete. Paths
+// stay as the fixture has them, module prefixes included: that's how the
+// operator sends them, and a device may tell its models apart by them (SR
+// Linux reads "openconfig-system:system" as OpenConfig, "system" as native).
 func (f *Fixture) Touched() (applied []Leaf, removed []string) {
-	d := snapshot.Diff(flat(f.Preload), flat(f.Expect), nil)
-	for _, c := range d.Changes {
-		if c.Kind == "added" || c.Kind == "changed" {
-			applied = append(applied, Leaf{Path: c.Path, Value: c.After})
+	pre, exp := leafMap(f.Preload), leafMap(f.Expect)
+	for _, p := range sortedKeys(exp) {
+		if v, ok := pre[p]; !ok || fmt.Sprint(v) != fmt.Sprint(exp[p]) {
+			applied = append(applied, Leaf{Path: p, Value: exp[p]})
 		}
 	}
 	if f.Delete != nil {
-		dd := snapshot.Diff(flat(f.Expect), flat(f.Delete), nil)
-		for _, c := range dd.Changes {
-			if c.Kind == "removed" {
-				removed = append(removed, c.Path)
+		del := leafMap(f.Delete)
+		for _, p := range sortedKeys(exp) {
+			if _, ok := del[p]; !ok {
+				removed = append(removed, p)
 			}
 		}
 	}
 	return applied, removed
+}
+
+func leafMap(v any) map[string]any {
+	m := map[string]any{}
+	for _, u := range flat(v) {
+		m[u.Path] = u.Value
+	}
+	return m
+}
+
+func sortedKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // specValues flattens a spec to field path -> string value (scalars only).
@@ -221,8 +244,9 @@ func join(p, k string) string {
 // Expected maps the fixture's touched leaves onto a live resource: values (and
 // list keys in paths) that equal a field of the fixture's resource spec are
 // replaced by the live resource's value of the same field. Leaves that don't
-// come from the spec keep the fixture's value.
-func Expected(f *Fixture, kind string, liveSpec map[string]any) ([]Leaf, []string, error) {
+// come from the spec keep the fixture's value. gone are the leaves the
+// fixture's delete removes, mapped the same way (no values).
+func Expected(f *Fixture, kind string, liveSpec map[string]any) ([]Leaf, []Leaf, error) {
 	cr := f.CR(kind)
 	if cr == nil {
 		return nil, nil, apperr.New(apperr.ClassUsage, apperr.CodeNotFound, "fixture %s has no %s", f.File, kind)
@@ -263,7 +287,7 @@ func Expected(f *Fixture, kind string, liveSpec map[string]any) ([]Leaf, []strin
 	var out []Leaf
 	for _, l := range applied {
 		p, pf := mapPath(l.Path)
-		leaf := Leaf{Path: p, Value: l.Value, From: pf}
+		leaf := Leaf{Path: p, Value: l.Value, From: pf, FixturePath: l.Path, FixtureValue: l.Value}
 		if s, ok := l.Value.(string); ok {
 			if v, field := mapStr(s); field != "" {
 				leaf.Value, leaf.From = v, field
@@ -275,10 +299,10 @@ func Expected(f *Fixture, kind string, liveSpec map[string]any) ([]Leaf, []strin
 		}
 		out = append(out, leaf)
 	}
-	var gone []string
+	var gone []Leaf
 	for _, p := range removed {
-		mp, _ := mapPath(p)
-		gone = append(gone, mp)
+		mp, pf := mapPath(p)
+		gone = append(gone, Leaf{Path: mp, From: pf, FixturePath: p})
 	}
 	return out, gone, nil
 }

@@ -8,7 +8,16 @@ import { errText } from "./config";
 import { help } from "./help";
 import { stringify } from "./json";
 
-export interface ClusterDevice { namespace: string; name: string; provider: string; ready: string; paused: boolean; connected: boolean }
+export interface ClusterDevice {
+  namespace: string; name: string; provider: string; ready: string; paused: boolean; connected: boolean;
+  address?: string; route?: string; // route: how the open connection goes (directly / via jump hosts)
+  hostname?: string; manufacturer?: string; model?: string; firmware?: string; // what the operator found on the device
+}
+
+// reported names what the operator found on the device (the Device's status).
+function reported(d: { hostname?: string; manufacturer?: string; model?: string; firmware?: string }) {
+  return [d.hostname, [d.manufacturer, d.model].filter(Boolean).join(" "), d.firmware].filter(Boolean).join(" · ");
+}
 
 export interface OpContext {
   device(): ClusterDevice | null; // selected in the cluster list
@@ -78,18 +87,39 @@ export function operatorTab(ctx: OpContext) {
 
   const showVerification = (v: Verification) => {
     const v2s = (x: unknown) => (x === undefined || x === null ? "" : typeof x === "string" ? JSON.stringify(x) : stringify(x, 0));
+    const route = v.jumps?.length ? `via ${v.jumps.join(", ")}` : "directly";
+    const fact = (k: string, ...val: Child[]) => [h("dt", {}, k), h("dd", {}, ...val)];
+    const info = v.deviceInfo ? reported(v.deviceInfo) : "";
     showResult(
       h("div", { class: "row between" },
         h("h4", {}, `${v.resource.kind || ""} ${v.resource.name} · ${v.mode}`, " ", badge(v.verdict, "verdict")),
         h("button", { class: "small", onclick: () => copyText(stringify(v), "verification JSON") }, "Copy report")),
-      h("p", { class: "muted small" }, `Device ${v.device} · fixture ${v.fixture} · ${v.elapsedMs} ms` + (v.alternates?.length ? ` · other fixtures: ${v.alternates.join(", ")}` : "")),
       v.reasons.length ? h("ul", { class: "reasons" }, ...v.reasons.map((r) => h("li", {}, r))) : null,
-      h("table", { class: "grid verify-table" },
-        h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", {}, "Device path"), h("th", {}, v.mode === "deleted" ? "The resource set" : "Expected"), h("th", {}, v.mode === "deleted" ? "On the device now" : "On the device"), h("th", {}, "From spec"))),
-        h("tbody", {}, ...v.leaves.map((l) => h("tr", {},
-          h("td", {}, badge(l.status, "leaf")), h("td", { class: "mono" }, l.path),
-          h("td", { class: "mono" }, v2s(l.expected)), h("td", { class: "mono" }, v2s(l.actual)),
-          h("td", { class: "mono muted" }, l.from ?? ""))))));
+      h("dl", { class: "op-facts small" },
+        ...fact("Device", v.device.replace(/^k8s:/, ""), info ? h("span", { class: "muted" }, ` (reports ${info})`) : null),
+        ...fact("Read from", h("span", { class: "mono" }, v.address ?? "?"), ` ${route}`),
+        ...fact("Provider", h("span", { class: "mono", title: "The Device's spec.provider: it picks the fixtures folder" }, v.provider ?? "?")),
+        ...fact("Fixture", h("span", { class: "mono" }, v.fixtureFile || v.fixture), " ",
+          v.fixtureFile ? h("button", { class: "link small", onclick: () => copyText(v.fixtureFile!, "fixture path") }, "copy") : null),
+        ...(v.alternates?.length ? fact("Other fixtures", v.alternates.join(", ")) : []),
+        ...fact("Took", `${v.elapsedMs} ms`)),
+      h("h4", { class: "small" }, `${v.leaves.length} ${v.leaves.length === 1 ? "leaf" : "leaves"} checked`),
+      ...v.leaves.map((l) => {
+        const changed = !!l.fixturePath && l.fixturePath !== l.path;
+        const fxVal = l.fixtureValue !== undefined && v2s(l.fixtureValue) !== v2s(l.expected) ? v2s(l.fixtureValue) : "";
+        return h("div", { class: "vleaf" },
+          h("div", { class: "vleaf-head" }, badge(l.status, "leaf"),
+            h("span", { class: "mono", title: "The gNMI path read from the device" }, l.path)),
+          h("dl", { class: "op-facts small" },
+            ...fact("In the fixture", l.fixturePath
+              ? h("span", { class: changed ? "mono" : "muted" }, changed ? l.fixturePath : "the same path")
+              : h("span", { class: "muted" }, "?")),
+            ...fact(v.mode === "deleted" ? "The resource set" : "Expected", h("span", { class: "mono" }, v2s(l.expected)),
+              l.from ? h("span", { class: "muted" }, ` (spec.${l.from})`) : null),
+            ...(fxVal ? fact("Fixture value", h("span", { class: "mono muted" }, fxVal)) : []),
+            ...fact(v.mode === "deleted" ? "On the device now" : "On the device",
+              h("span", { class: "mono" + (l.status === "error" ? " err" : "") }, v2s(l.actual) || (l.status === "ok" && v.mode === "deleted" ? "(nothing)" : "")))));
+      }));
   };
 
   const reasonOf = (r: K8sResource) => {
@@ -131,7 +161,11 @@ export function operatorTab(ctx: OpContext) {
         h("div", { class: "op-dev-name" }, h("strong", {}, `${d.namespace}/${d.name}`), badge(d.ready),
           d.paused ? h("span", { class: "badge warn" }, "paused") : null),
         h("div", { class: "muted small" }, h("span", { title: d.provider }, shortProvider(d.provider)), " · ",
-          d.connected ? h("span", { class: "ok" }, "connected") : "not connected (Verify connects)")),
+          d.connected ? h("span", { class: "ok" }, "connected") : "not connected (Verify connects)"),
+        h("dl", { class: "op-facts small" },
+          h("dt", {}, "Provider"), h("dd", { class: "mono", title: "The Device's spec.provider, set when the Device was created. The operator configures the device through it, and Verify takes its fixtures from this provider's folder." }, d.provider),
+          h("dt", {}, "Address"), h("dd", { class: "mono" }, d.address || "?", d.route ? h("span", { class: "muted" }, ` (${d.route})`) : null),
+          h("dt", {}, "Device reports"), h("dd", { title: "What the operator found on the device (the Device's status)" }, reported(d) || h("span", { class: "muted" }, "nothing yet")))),
       h("span", { class: "grow" }),
       h("div", { class: "row" },
         h("button", { class: "small", title: d.paused ? "Resume the Device: the operator reconciles it again" : "Pause the Device: the operator stops reconciling it and all its resources", onclick: () => pause("device", d.name, !d.paused) }, d.paused ? "Resume device" : "Pause device"),

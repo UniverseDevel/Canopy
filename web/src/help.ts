@@ -242,6 +242,7 @@ const T = {
     body: [
       "Takes the provider's test fixture for the resource's kind, finds which device leaves the operator writes for it, fills in this resource's values, and reads those leaves from the device. Each leaf is ok, mismatch, or missing.",
       "Verify a deleted resource checks that its configuration is gone.",
+      "The provider is the Device's `spec.provider`: the operator configures the device through it, and it picks the fixtures folder. The result names the fixture file, the address read from (and the jump hosts on the way), and for each leaf the path read from the device next to the path in the fixture. Paths keep their module prefixes, as the operator sends them: a device may pick the model by them (SR Linux reads `openconfig-system:system` as OpenConfig and `system` as its own).",
     ],
     related: ["operator", "fixtures"],
     cli: "canopy operator verify KIND NAME",

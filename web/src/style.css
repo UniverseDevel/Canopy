@@ -287,6 +287,14 @@ button.danger { background: var(--err); border-color: var(--err); color: #fff; }
 .op-table td, .op-table th, .verify-table td, .verify-table th { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .op-table td.actions { text-align: right; white-space: nowrap; }
 .verify-table td.mono { word-break: break-all; }
+.vleaf { border-top: 1px solid var(--line); padding: 6px 0 2px; }
+.vleaf-head { display: flex; gap: 6px; align-items: baseline; font-size: 12px; }
+.vleaf-head .mono { overflow-wrap: anywhere; }
+.vleaf .op-facts { margin: 4px 0 2px 4px; }
+.vleaf .op-facts .mono { white-space: pre-wrap; overflow-wrap: anywhere; }
+.op-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; margin: 6px 0 8px; }
+.op-facts dt { color: var(--muted); }
+.op-facts dd { margin: 0; overflow-wrap: anywhere; }
 .badge { font: 600 10.5px var(--mono); padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; white-space: nowrap; }
 .badge.ok { color: var(--ok); } .badge.err { color: var(--err); } .badge.warn { color: var(--kind-ll); } .badge.muted { color: var(--muted); }
 .op-result h4 { margin: 10px 0 4px; display: flex; gap: 8px; align-items: center; }

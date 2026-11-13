@@ -145,6 +145,11 @@ type Device struct {
 	SecretRef  string            `json:"secretRef,omitempty"`
 	TLS        bool              `json:"tls"`
 	Labels     map[string]string `json:"labels,omitempty"`
+	// What the operator found on the device (status)
+	Hostname     string `json:"hostname,omitempty"`
+	Manufacturer string `json:"manufacturer,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Firmware     string `json:"firmware,omitempty"`
 }
 
 func conditions(u *unstructured.Unstructured) []Condition {
@@ -173,13 +178,18 @@ func condStatus(cs []Condition, t string) string {
 	return "Unknown"
 }
 
-func toDevice(u *unstructured.Unstructured) Device {
+// ToDevice summarizes a Device CR.
+func ToDevice(u *unstructured.Unstructured) Device {
 	d := Device{Namespace: u.GetNamespace(), Name: u.GetName(), Labels: u.GetLabels(), Conditions: conditions(u)}
 	d.Provider, _, _ = unstructured.NestedString(u.Object, "spec", "provider")
 	d.Address, _, _ = unstructured.NestedString(u.Object, "spec", "endpoint", "address")
 	d.SecretRef, _, _ = unstructured.NestedString(u.Object, "spec", "endpoint", "secretRef", "name")
 	_, d.TLS, _ = unstructured.NestedMap(u.Object, "spec", "endpoint", "tls")
 	d.Phase, _, _ = unstructured.NestedString(u.Object, "status", "phase")
+	d.Hostname, _, _ = unstructured.NestedString(u.Object, "status", "hostname")
+	d.Manufacturer, _, _ = unstructured.NestedString(u.Object, "status", "manufacturer")
+	d.Model, _, _ = unstructured.NestedString(u.Object, "status", "model")
+	d.Firmware, _, _ = unstructured.NestedString(u.Object, "status", "firmwareVersion")
 	sp, _, _ := unstructured.NestedBool(u.Object, "spec", "paused")
 	d.Paused = sp || u.GetAnnotations()[PausedAnnotation] != ""
 	d.Ready = condStatus(d.Conditions, "Ready")
@@ -194,7 +204,7 @@ func (c *Client) Devices(ctx context.Context, ns string) ([]Device, error) {
 	}
 	out := []Device{}
 	for i := range l.Items {
-		out = append(out, toDevice(&l.Items[i]))
+		out = append(out, ToDevice(&l.Items[i]))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Namespace+"/"+out[i].Name < out[j].Namespace+"/"+out[j].Name })
 	return out, nil
@@ -227,7 +237,7 @@ func (c *Client) DeviceCredentials(ctx context.Context, ns, name string) (*Crede
 	if err != nil {
 		return nil, err
 	}
-	d := toDevice(u)
+	d := ToDevice(u)
 	cr := &Credentials{Address: d.Address, Provider: d.Provider}
 	if d.SecretRef != "" {
 		s, err := c.core.CoreV1().Secrets(ns).Get(ctx, d.SecretRef, metav1.GetOptions{})
