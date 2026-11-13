@@ -105,6 +105,7 @@ export function fixturesTab(ctx: FixtureContext) {
   // Which network-operator checkout: one choice for everything (not per device),
   // with the recent ones to switch between a fork and the public repository.
   const repoLine = h("div", { class: "row fx-repo" });
+  const repoErr = h("p", { class: "err small" });
   const choose = async (req: { path?: string; forget?: string }) => {
     try { await api.chooseOperatorRepo(req); } catch (e) { toast(errText(e), "err"); }
     loadProviders();
@@ -118,14 +119,14 @@ export function fixturesTab(ctx: FixtureContext) {
     sel.value = r.current ?? "";
     sel.addEventListener("change", () => choose({ path: sel.value }));
     clear(repoLine);
-    repoLine.append(field(withHelp("network-operator checkout", "fixtures"), sel),
+    repoLine.append(sel,
       h("button", { class: "small", title: "Choose a checkout folder, e.g. your fork", onclick: async () => {
         const p = await ctx.pickFolder("network-operator checkout", r.current || r.inUse);
         if (p) choose({ path: p });
       } }, "Browse…"),
       ...(r.current ? [h("button", { class: "small", title: "Remove it from the list", onclick: () => choose({ forget: r.current }) }, "Forget")] : []));
-    const msg = err || r.error;
-    if (msg) repoLine.append(h("p", { class: "err small" }, msg));
+    repoErr.textContent = err || r.error || "";
+    repoErr.hidden = !repoErr.textContent;
   };
 
   const run = async (text?: string, name?: string) => {
@@ -213,11 +214,15 @@ export function fixturesTab(ctx: FixtureContext) {
   };
 
   append(host,
+    h("p", { class: "muted small" }, "Test cases for network-operator: a resource and the device state it must produce. ", help("fixtures")),
     h("section", { class: "fx-section" },
-      h("p", { class: "muted small" }, "Test cases for network-operator: a resource and the device state it must produce. ", help("fixtures")),
+      h("h3", {}, "network-operator checkout", help("fixtures")),
+      h("p", { class: "muted small" }, "Where fixtures, samples and Verify come from: one choice for all Devices, e.g. your fork or the public repository."),
+      repoLine, repoErr),
+    h("section", { class: "fx-section" },
       h("h3", {}, "Run a fixture", help("fixtureRun")),
       h("p", { class: "muted small" }, "Runs the fixture against the operator in the cluster, with a shadow target in place of a device."),
-      repoLine, deviceNote,
+      deviceNote,
       h("div", { class: "form-grid" }, field("Provider", provider), field("Fixture", fixture), field(withHelp("Shadow target", "shadow"), mode),
         field("Address the operator uses", devAddr, "how pods in the cluster reach the shadow target")),
       embeddedFields, remoteFields,

@@ -1,7 +1,7 @@
 import { api, ApiError, catalogApi, GetResult, MatchReport, modelsApi, ModelSource, opApi, OpOptions, reportApi, NodeDetail, Preset, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
 import { openConfigDialog } from "./config";
 import { snapshotsTab } from "./snapshots";
-import { operatorTab } from "./operator";
+import { operatorTab, shortProvider } from "./operator";
 import { auditConsole } from "./console";
 import { help, openHelpIndex, setHelpNav, withHelp } from "./help";
 import { openCatalog } from "./catalog";
@@ -163,6 +163,7 @@ const opTab = operatorTab({
   disconnect: async () => { const d = selectedCluster(); if (d) await disconnectDevice(d); },
   options: () => opOptions(),
   toFixture: (r) => { showTab("Fixtures"); fxTab.useResource(r); },
+  deviceChanged: () => loadCluster(),
 });
 const snaps = snapshotsTab({ session: () => S.session, paths: () => markedPaths(), type: () => typeSel.value });
 type Tab = typeof tabs[number] | typeof opTabs[number];
@@ -262,7 +263,12 @@ const splitL = h("div", { class: "split", title: "Drag to resize" });
 const splitR = h("div", { class: "split", title: "Drag to resize" });
 const mainEl = h("main", {}, leftPane, splitL, centerPane, splitR, rightPane);
 const opMain = h("section", { class: "op-main" }, opTabBar, ...opTabs.map((t) => tabBodies[t]));
-const opLabel = h("div", { class: "muted small active-label" }, "network-operator");
+const opLabel = h("div", { class: "muted small active-label" }, "NetOp");
+let clusterContext = "";
+function updateOpLabel() {
+  const d = selectedCluster();
+  opLabel.textContent = ["NetOp", clusterContext, d?.name].filter(Boolean).join(" · ");
+}
 
 function setupSplitters() {
   const apply = () => {
@@ -395,6 +401,7 @@ function renderDevices() {
     deviceList.append(h("p", { class: "muted small pad" }, "No devices yet. Use + Connect device."));
   }
   for (const d of devices.filter((x) => x.k8s)) clusterList.append(clusterRow(d));
+  updateOpLabel();
   for (const d of local) {
     const on = d.state === "on";
     // Compact icon button with a fixed size, so nothing moves when it changes.
@@ -436,7 +443,7 @@ function clusterRow(d: Device) {
       h("div", { class: "dev-name" }, d.name,
         h("span", { class: "tag " + (k.ready === "True" ? "tag-ok" : "tag-warn"), title: "Ready condition of the Device" }, k.ready === "True" ? "ready" : "not ready"),
         k.paused ? h("span", { class: "tag tag-warn" }, "paused") : null),
-      h("div", { class: "muted small dev-sub" }, `${k.provider} · ${d.target.address}`),
+      h("div", { class: "muted small dev-sub", title: k.provider }, `${shortProvider(k.provider)} · ${d.target.address}`),
       d.state === "err" && d.error ? h("div", { class: "err small dev-sub dev-err", title: d.error }, d.error) : null));
   row.title = d.description ?? "";
   row.addEventListener("click", () => selectCluster(d));
@@ -496,6 +503,7 @@ async function loadCluster() {
   clusterInfo.title = "";
   try {
     const r = await opApi.devices(opOptions());
+    clusterContext = r.context;
     clusterInfo.textContent = `${r.context} · ${r.devices.length} Device${r.devices.length === 1 ? "" : "s"}`;
     const old = new Map(devices.filter((d) => d.k8s).map((d) => [d.key, d]));
     for (const k of old.keys()) devices.splice(devices.findIndex((d) => d.key === k), 1);

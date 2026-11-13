@@ -17,6 +17,13 @@ export interface OpContext {
   disconnect(): Promise<void>;
   options(): OpOptions;
   toFixture?(r: K8sResource): void;
+  deviceChanged?(): void; // the Device itself changed (paused): reload the cluster list
+}
+
+// shortProvider names a provider by its vendor folder: srlinux.nokia.networking.metal.ironcore.dev → nokia/srlinux
+export function shortProvider(p: string) {
+  const [a, b] = p.split(".");
+  return b && p.includes(".networking.") ? `${b}/${a}` : p;
 }
 
 function badge(status: string, kind: "ready" | "verdict" | "leaf" = "ready") {
@@ -27,15 +34,16 @@ function badge(status: string, kind: "ready" | "verdict" | "leaf" = "ready") {
 
 export function operatorTab(ctx: OpContext) {
   const host = h("div", { class: "operator" });
-  const head = h("div", { class: "op-head" });
+  const head = h("div", { class: "row op-head-body" });
   const list = h("div", { class: "op-list" });
-  const result = h("div", { class: "op-result" });
+  const result = h("div", { class: "op-card op-result" });
   const kindList = h("datalist", { id: "op-kinds" });
   const delKind = h("input", { placeholder: "kind, e.g. Banner", list: "op-kinds" });
   const delName = h("input", { placeholder: "name (optional)" });
-  const delBox = h("details", { class: "op-deleted" });
+  const delBox = h("details", { class: "op-card op-deleted" });
 
   const dev = () => ctx.device();
+  const closeBtn = () => h("button", { class: "small icon", title: "Close", onclick: () => clear(result) }, "✕");
   // the result sits below the lists: bring it into view when it changes
   const showResult = (...nodes: Child[]) => {
     clear(result);
@@ -68,7 +76,9 @@ export function operatorTab(ctx: OpContext) {
     showResult(
       h("div", { class: "row between" },
         h("h4", {}, `${v.resource.kind || ""} ${v.resource.name} · ${v.mode}`, " ", badge(v.verdict, "verdict")),
-        h("button", { class: "small", onclick: () => copyText(stringify(v), "verification JSON") }, "Copy report")),
+        h("div", { class: "row" },
+          h("button", { class: "small", onclick: () => copyText(stringify(v), "verification JSON") }, "Copy report"),
+          closeBtn())),
       h("p", { class: "muted small" }, `Device ${v.device} · fixture ${v.fixture} · ${v.elapsedMs} ms` + (v.alternates?.length ? ` · other fixtures: ${v.alternates.join(", ")}` : "")),
       v.reasons.length ? h("ul", { class: "reasons" }, ...v.reasons.map((r) => h("li", {}, r))) : null,
       h("table", { class: "grid verify-table" },
@@ -79,39 +89,51 @@ export function operatorTab(ctx: OpContext) {
           h("td", { class: "mono muted" }, l.from ?? ""))))));
   };
 
+  const reasonOf = (r: K8sResource) => {
+    const c = r.conditions?.find((x) => x.type === "Ready");
+    const t = [c?.reason, c?.message].filter(Boolean).join(": ");
+    return t ? h("span", { class: "muted small cond", title: t }, t) : null;
+  };
+
   const pause = async (kind: string, name: string, paused: boolean) => {
     const d = dev();
     if (!d) return;
     try {
       const r = await opApi.pause(ctx.options(), kind, d.namespace, name, paused);
-      toast(`${kind} ${name}: Paused=${r.condition || paused}`);
+      toast(`${kind} ${name}: ${paused ? "paused" : "resumed"}` + (r.condition ? ` (Paused=${r.condition})` : ""));
+      if (kind === "device") ctx.deviceChanged?.();
       await loadResources(true);
     } catch (e) { toast(errText(e), "err"); }
   };
 
+  const notReconciled = (r: K8sResource) => !!r.observedGeneration && r.observedGeneration !== r.generation;
   const row = (r: K8sResource) => h("tr", {},
-    h("td", {}, r.kind), h("td", {}, r.name), h("td", {}, badge(r.ready)),
-    h("td", {}, r.paused ? h("span", { class: "badge warn" }, "paused") : ""),
-    h("td", { class: "muted small" }, r.observedGeneration && r.observedGeneration !== r.generation ? `gen ${r.generation}/${r.observedGeneration}` : ""),
+    h("td", {}, r.kind), h("td", {}, r.name),
+    h("td", { class: "status" }, badge(r.ready),
+      r.paused ? h("span", { class: "badge warn" }, "paused") : null,
+      notReconciled(r) ? h("span", { class: "badge muted", title: `The operator hasn't reconciled the latest change yet (generation ${r.generation}, observed ${r.observedGeneration})` }, "reconciling") : null,
+      r.ready !== "True" ? reasonOf(r) : null),
     h("td", { class: "actions" },
       h("button", { class: "small primary", title: "Check that this resource's intent is on the device", onclick: () => verify(r.kind, r.name) }, "Verify"),
       h("button", { class: "small", onclick: () => pause(r.kind, r.name, !r.paused) }, r.paused ? "Resume" : "Pause"),
       ctx.toFixture ? h("button", { class: "small", title: "Build a test fixture for this resource (Fixtures tab)", onclick: () => ctx.toFixture!(r) }, "Fixture") : null,
-      h("button", { class: "small icon", title: "Show spec", onclick: () => showResult(h("h4", {}, `${r.kind} ${r.name} spec`), h("pre", { class: "code" }, stringify(r.spec ?? {}))) }, "{}")));
+      h("button", { class: "small icon", title: "Show spec", onclick: () => showResult(h("div", { class: "row between" }, h("h4", {}, `${r.kind} ${r.name} · spec`), closeBtn()), h("pre", { class: "code" }, stringify(r.spec ?? {}))) }, "Spec")));
 
   const refreshHead = () => {
     clear(head);
     const d = dev();
     if (!d) return;
     append(head,
-      h("div", { class: "row between" },
-        h("div", {}, h("strong", {}, `${d.namespace}/${d.name}`), h("span", { class: "muted small" }, ` · ${d.provider} · ${d.connected ? "connected" : "not connected"}`)),
-        h("div", { class: "row" },
-          h("button", { class: "small", title: "Pause the Device (pauses all its resources)", onclick: () => pause("device", d.name, true) }, "Pause device"),
-          h("button", { class: "small", onclick: () => pause("device", d.name, false) }, "Resume device"),
-          h("button", { class: "small", title: "Read the resources again", onclick: () => loadResources(true) }, "Refresh"),
-          h("button", { class: "small", title: "Open this Device's connection in the Devices workspace: schema, data, snapshots (connects if needed)", onclick: () => ctx.browse() }, "Browse in Devices"),
-          d.connected ? h("button", { class: "small", onclick: async () => { await ctx.disconnect(); refreshHead(); } }, "Disconnect") : null)));
+      h("div", { class: "op-dev" },
+        h("div", { class: "op-dev-name" }, h("strong", {}, `${d.namespace}/${d.name}`), badge(d.ready),
+          d.paused ? h("span", { class: "badge warn" }, "paused") : null),
+        h("div", { class: "muted small" }, h("span", { title: d.provider }, shortProvider(d.provider)), " · ",
+          d.connected ? h("span", { class: "ok" }, "connected") : "not connected (Verify connects)")),
+      h("span", { class: "grow" }),
+      h("div", { class: "row" },
+        h("button", { class: "small", title: d.paused ? "Resume the Device: the operator reconciles it again" : "Pause the Device: the operator stops reconciling it and all its resources", onclick: () => pause("device", d.name, !d.paused) }, d.paused ? "Resume device" : "Pause device"),
+        h("button", { class: "small", title: "Open this Device's connection in the Devices workspace: schema, data, snapshots (connects if needed)", onclick: () => ctx.browse() }, "Browse in Devices"),
+        d.connected ? h("button", { class: "small", onclick: async () => { await ctx.disconnect(); refreshHead(); } }, "Disconnect") : null));
   };
 
   // ----- samples: network-operator's example resources, applied like Tilt's buttons.
@@ -123,33 +145,45 @@ export function operatorTab(ctx: OpContext) {
   let samples: Sample[] = [];
   let samplesKey = ""; // the Device the list is for
   let samplesSeq = 0;
-  const samplesBox = h("details", { class: "op-samples" },
-    h("summary", {}, h("strong", {}, "Samples"), " ", h("span", { class: "muted small" }, "network-operator's example resources, like Tilt's sample buttons"), " ", help("samples")),
+  const samplesCount = h("span", { class: "muted small" });
+  const samplesBox = h("details", { class: "op-card op-samples" },
+    h("summary", {}, h("h3", {}, "Samples", help("samples")), samplesCount,
+      h("span", { class: "muted small" }, "network-operator's example resources, applied like Tilt's sample buttons")),
     h("div", { class: "row" }, sampleFilter, h("button", { class: "small", title: "Read the samples and their state again", onclick: () => loadSamples(true) }, "Reload")),
     samplesInfo, samplesList);
   samplesBox.addEventListener("toggle", () => { if (samplesBox.open) loadSamples(); });
   const devKey = () => { const d = dev(); return d ? `${d.namespace}/${d.name}/${d.provider}` : ""; };
 
+  const countSamples = () => {
+    if (!samplesKey) { samplesCount.textContent = ""; return; }
+    const applied = samples.filter((x) => x.applied && !x.otherDevice).length;
+    const missing = samples.filter((x) => x.notServed).length;
+    samplesCount.textContent = `${samples.length} · ${applied} applied` + (missing ? ` · ${missing} not served` : "");
+  };
   const drawSamples = () => {
+    countSamples();
     clear(samplesList);
     const q = sampleFilter.value.trim().toLowerCase();
     const shown = samples.filter((x) => !q || x.kind.toLowerCase().includes(q) || x.name.toLowerCase().includes(q))
       .sort((a, b) => Number(!!a.notServed) - Number(!!b.notServed));
     if (!shown.length) { samplesList.append(h("p", { class: "muted small" }, samples.length ? "No sample matches." : "")); return; }
+    // fixed action slots, so the buttons line up from row to row
+    const slot = (b: HTMLElement | null) => h("span", { class: "slot" }, b);
     samplesList.append(h("table", { class: "grid op-table" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Name"), h("th", {}, ""), h("th", {}, "In the cluster"), h("th", {}, ""))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Name"), h("th", {}, "In the cluster"), h("th", {}, ""))),
       h("tbody", {}, ...shown.map((x) => h("tr", { class: x.notServed ? "muted" : "" },
-        h("td", {}, x.kind), h("td", {}, x.name),
-        h("td", { class: "muted small" }, [x.vendor, x.secrets?.length ? `+ Secret ${x.secrets.join(", ")}` : ""].filter(Boolean).join(" · ")),
-        h("td", {}, x.notServed ? h("span", { class: "muted small", title: "The cluster doesn't serve this kind (another provider's, or a CRD that isn't installed)" }, "kind not in this cluster")
+        h("td", {}, x.kind),
+        h("td", {}, x.name, x.vendor || x.secrets?.length
+          ? h("div", { class: "muted small" }, [x.vendor, x.secrets?.length ? `with Secret ${x.secrets.join(", ")}` : ""].filter(Boolean).join(" · ")) : null),
+        h("td", { class: "status" }, x.notServed ? h("span", { class: "muted small", title: "The cluster doesn't serve this kind (another provider's, or a CRD that isn't installed)" }, "kind not served")
           : x.otherDevice ? h("span", { class: "badge warn", title: "An object with this name exists and points at another Device" }, `used by ${x.otherDevice}`)
-          : x.applied ? h("span", { class: "badge ok" }, "applied") : h("span", { class: "muted small" }, "—")),
-        h("td", { class: "actions" },
-          x.notServed ? null : h("button", { class: "small primary", title: "Review, edit and apply it to this Device", onclick: () => applySample(x) }, x.applied ? "Re-apply…" : "Apply…"),
-          x.notServed || x.otherDevice ? null : x.applied
+          : x.applied ? h("span", { class: "badge ok" }, "applied") : h("span", { class: "muted small" }, "not applied")),
+        h("td", { class: "actions" }, x.notServed ? null : h("span", { class: "slots" },
+          slot(h("button", { class: "small primary", title: "Review, edit and apply it to this Device", onclick: () => applySample(x) }, x.applied ? "Re-apply…" : "Apply…")),
+          slot(x.otherDevice ? null : x.applied
             ? h("button", { class: "small", title: "Check on the device that this sample's configuration is there (connects to it)", onclick: () => verify(x.kind, x.name) }, "Verify")
-            : h("button", { class: "small", title: "Check on the device that this sample's configuration is not there, e.g. after deleting it (connects to it)", onclick: () => verify(x.kind, x.name, true, x.yaml) }, "Verify removal"),
-          x.applied && !x.otherDevice ? h("button", { class: "small", title: "Delete it from the cluster; the operator removes its configuration from the device", onclick: () => deleteSample(x) }, "Delete") : null))))));
+            : h("button", { class: "small", title: "Check on the device that this sample's configuration is not there, e.g. after deleting it (connects to it)", onclick: () => verify(x.kind, x.name, true, x.yaml) }, "Verify removal")),
+          slot(x.applied && !x.otherDevice ? h("button", { class: "small", title: "Delete it from the cluster; the operator removes its configuration from the device", onclick: () => deleteSample(x) }, "Delete") : null))))))));
   };
   sampleFilter.addEventListener("input", drawSamples);
 
@@ -157,6 +191,7 @@ export function operatorTab(ctx: OpContext) {
     const d = dev();
     const key = devKey();
     if (!d) { samples = []; samplesKey = ""; samplesInfo.textContent = ""; drawSamples(); return; }
+    if (force || key !== samplesKey) samplesCount.textContent = "";
     if (!force && key === samplesKey) return; // already loaded for this Device
     const seq = ++samplesSeq;
     samplesInfo.textContent = "Loading samples…";
@@ -166,9 +201,7 @@ export function operatorTab(ctx: OpContext) {
       samples = r.samples;
       addKinds(samples.filter((x) => !x.notServed).map((x) => x.kind));
       samplesKey = key;
-      const missing = samples.filter((x) => x.notServed).length;
-      samplesInfo.textContent = `${samples.length} samples from ${r.dir} (the common ones and this provider's folder)` +
-        (missing ? `, ${missing} of a kind this cluster doesn't serve` : "") + `. Apply aims them at ${d.namespace}/${d.name}.`;
+      samplesInfo.textContent = `From ${r.dir}: the common samples and ${shortProvider(d.provider)}'s. Apply aims them at ${d.namespace}/${d.name}.`;
     } catch (e) {
       if (seq !== samplesSeq) return;
       samplesInfo.textContent = errText(e);
@@ -211,6 +244,7 @@ export function operatorTab(ctx: OpContext) {
 
   // ----- the Device's resources. quiet keeps the table while it reloads.
   const resNote = h("span", { class: "muted small" });
+  const resCount = h("span", { class: "muted small" });
   let resSeq = 0;
   let resKey = "";
   const loadResources = async (quiet = false) => {
@@ -218,7 +252,7 @@ export function operatorTab(ctx: OpContext) {
     if (!d) return;
     const key = devKey();
     const seq = ++resSeq;
-    if (!quiet || key !== resKey) { clear(list); list.append(h("p", { class: "muted small" }, "Loading resources…")); }
+    if (!quiet || key !== resKey) { clear(list); resCount.textContent = ""; list.append(h("p", { class: "muted small" }, "Loading resources…")); }
     resNote.textContent = quiet ? "updating…" : "";
     try {
       const rs = await opApi.resources(ctx.options(), d.namespace, d.name);
@@ -227,9 +261,11 @@ export function operatorTab(ctx: OpContext) {
       resNote.textContent = "";
       clear(list);
       addKinds(rs.map((x) => x.kind));
+      const bad = rs.filter((x) => x.ready !== "True").length, paused = rs.filter((x) => x.paused).length;
+      resCount.textContent = rs.length ? `${rs.length} · ${bad ? `${bad} not ready` : "all ready"}` + (paused ? ` · ${paused} paused` : "") : "";
       if (!rs.length) { list.append(h("p", { class: "muted small" }, "No resources reference this Device (spec.deviceRef).")); return; }
       list.append(h("table", { class: "grid op-table" },
-        h("thead", {}, h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Name"), h("th", {}, "Status"), h("th", {}, ""), h("th", {}, ""), h("th", {}, ""))),
+        h("thead", {}, h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Name"), h("th", {}, "Status"), h("th", {}, ""))),
         h("tbody", {}, ...rs.map(row))));
     } catch (e) {
       if (seq !== resSeq) return;
@@ -241,8 +277,9 @@ export function operatorTab(ctx: OpContext) {
   const refresh = async () => {
     const d = dev();
     clear(head);
+    resBox.hidden = samplesBox.hidden = delBox.hidden = !d;
     if (!d) {
-      clear(list);
+      clear(list); clear(result);
       head.append(h("p", { class: "muted" }, "Select a Device in the cluster list (left) to see the network-operator resources that configure it."));
       loadSamples();
       return;
@@ -252,7 +289,7 @@ export function operatorTab(ctx: OpContext) {
     await loadResources(devKey() === resKey);
   };
 
-  append(delBox, h("summary", { class: "muted small" }, "Verify another deleted resource"),
+  append(delBox, h("summary", {}, h("h3", {}, "Verify another deleted resource")),
       h("p", { class: "muted small" }, "For a resource that isn't a sample (samples have Verify removal on their row): after you delete it, checks on the device that its configuration is gone. " +
         "The resource no longer exists, so the paths come from this provider's test fixture for the kind; the name only labels the report."),
       h("div", { class: "row" }, field("Kind", delKind), field("Name", delName),
@@ -261,10 +298,11 @@ export function operatorTab(ctx: OpContext) {
           if (!k) { showResult(h("p", { class: "err" }, "Enter the kind of the deleted resource (e.g. Banner).")); delKind.focus(); return; }
           verify(k, delName.value.trim() || k.toLowerCase(), true);
         } }, "Verify removal")), kindList);
-  append(host,
-    h("p", { class: "muted small" }, "The network-operator resources of the selected Device. Pause, verify on the device (connects to it), or start a test fixture. ", help("operator")),
-    head, resNote, list, samplesBox,
-    delBox,
-    result);
+  const resBox = h("section", { class: "op-card" },
+    h("div", { class: "op-card-head" }, h("h3", {}, "Resources", help("operator")), resCount, resNote, h("span", { class: "grow" }),
+      h("button", { class: "small", title: "Read the resources again", onclick: () => loadResources(true) }, "Refresh")),
+    h("p", { class: "muted small" }, "The resources whose spec.deviceRef is this Device. Verify checks on the device that a resource's configuration is there."),
+    list);
+  append(host, h("div", { class: "op-card op-head" }, head), resBox, samplesBox, delBox, result);
   return { el: host, refresh };
 }

@@ -504,8 +504,32 @@ input.secret { -webkit-text-security: disc; font-family: var(--mono); letter-spa
 .op-main { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: auto; padding: 8px 14px; }
 .op-main > .tab-body { max-width: 1100px; }
 
-.op-samples { margin: 10px 0; }
-.op-samples > summary { cursor: pointer; padding: 4px 0; }
+/* NetOp Resources tab: cards like the Fixtures tab's sections */
+.op-card { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; background: var(--panel); }
+.op-card[hidden], .op-result:empty { display: none; }
+.op-card h3 { font-size: 13.5px; font-weight: 600; margin: 0; display: inline-flex; align-items: center; gap: 2px; }
+.op-card-head, .op-card > summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.op-card > summary { cursor: pointer; list-style: none; }
+.op-card > summary::-webkit-details-marker { display: none; }
+.op-card > summary::before { content: ""; width: 5px; height: 5px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); margin: 0 3px 0 1px; transition: transform .12s; }
+.op-card[open] > summary::before { transform: rotate(45deg); }
+.op-card[open] > summary { margin-bottom: 4px; }
+.op-card > p.muted.small { margin: 4px 0 6px; }
+.op-head-body { margin: 0; gap: 10px; }
+.op-dev-name { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.op-dev-name strong { margin-right: 2px; }
+.op-table td.status { white-space: nowrap; }
+.op-table td.status .badge + .badge { margin-left: 4px; }
+.op-table td.status .cond { display: block; max-width: 340px; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.op-table td, .op-table th { vertical-align: middle; }
+.op-table td.actions button + button { margin-left: 4px; }
+.op-table td.actions button { min-width: 58px; }
+.op-table .slots { display: inline-grid; grid-template-columns: 76px 104px 58px; gap: 4px; justify-items: stretch; }
+.op-table .slots button { width: 100%; min-width: 0; margin: 0; }
 .op-samples > .row { margin: 6px 0; }
 .op-samples input[type=search] { flex: 1; }
+.op-result h4 { margin: 0; }
+.op-result > .row.between:first-child { margin-top: 0; }
 tr.muted td { color: var(--muted); }
+.fx-repo select { flex: 1; min-width: 0; }
+.fixtures > p.muted.small { margin: 2px 0 6px; }
