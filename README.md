@@ -226,9 +226,9 @@ description and tags, plus what the device reported the last time
 (`lastSeen`). **Passwords are never written into the connections file**; `--password-env`
 names the environment variable with that device's password (default `GNMI_PASSWORD`).
 Opt-in, a password can be remembered in the OS keychain, or in an encrypted file next
-to the connections file (`lab/connections.yaml` → `lab/connections.secrets.yaml`,
+to the connections file (`connections.yaml` → `connections.secrets.yaml`,
 AES-256-GCM with a key kept in this computer's keychain; git-ignored, and Canopy adds
-`*.secrets.yaml` to a `.gitignore` if needed). It works for read-only presets too:
+`*.secrets.yaml` to a `.gitignore` if needed). It works for presets from read-only files too:
 
 ```bash
 canopy conn password lab-srl1 --store file
@@ -240,7 +240,8 @@ offers to remember it once the connect works.
 Presets live in `canopy conn path` (the user config folder, or `$CANOPY_CONFIG_DIR`).
 Extra read-only preset files, for example a team file, are added with
 `--connections FILE` or `CANOPY_CONNECTIONS` (separated like `PATH`); relative paths in them resolve against the
-file's folder. [`lab/connections.yaml`](lab/connections.yaml) holds the lab presets.
+file's folder. The repository has no presets of its own: every lab looks different, so
+each developer saves their own (the lab README has an example).
 
 **Git Bash on Windows** rewrites arguments that start with `/` into Windows paths
 (`/system` becomes `C:/Program Files/Git/system`). Run with `MSYS_NO_PATHCONV=1`, or
@@ -254,18 +255,18 @@ automatically:
 | Configuration | What it does |
 |---|---|
 | Build canopy | Builds `bin/canopy` and prints the version |
-| Canopy UI | Starts the UI; the lab presets are in the Devices list |
+| Canopy UI | Starts the UI with your own presets in the Devices list |
 | Canopy UI (rebuild web) | Same, after rebuilding the frontend (needs Node.js and `npm ci` in `web/`) |
 | All tests | `go test ./...` |
 | Web build / watch / check | Frontend build, rebuild on change, type check |
-| Lab - list connections | Lists the lab presets (and your own) |
-| Lab - connect lab-srl1 / -verified / -jump | Connects with each lab preset: TLS skip-verify, TLS verified with the lab CA, through the SSH jump host |
+| Lab - list connections | Lists your presets |
+| Lab - connect lab-srl1 / -verified / -jump | Connects with each lab preset (saved in your own presets, see the lab README): TLS skip-verify, TLS verified with the lab CA, through the SSH jump host |
 | Lab - get lab-srl1 | Reads the preset's favourite paths |
 | Lab - tree find login-banner | Schema search in the SR Linux models (downloaded on first use) |
 
-The UI and Lab configurations pass `--connections lab/connections.yaml`, i.e.
-[`lab/connections.yaml`](lab/connections.yaml), which is exactly what is used for local
-testing, and `GNMI_PASSWORD` to the SR Linux lab default.
+The UI and Lab configurations set `GNMI_PASSWORD` to the SR Linux lab default. The
+`Lab - …` ones expect presets named `lab-srl1`, `lab-srl1-verified` and `lab-srl1-jump`
+in your own presets.
 
 The IDE needs the Go plugin (built into GoLand); the `Web` configurations need the
 JavaScript plugin (IntelliJ IDEA Ultimate, GoLand, WebStorm).

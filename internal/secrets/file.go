@@ -20,7 +20,7 @@ import (
 )
 
 // Encrypted password file: <connections file>.secrets.yaml next to the file a
-// saved connection comes from (for example lab/connections.secrets.yaml). The
+// saved connection comes from (for example connections.secrets.yaml). The
 // passwords are encrypted with AES-256-GCM; the key is generated once per
 // computer and kept in the OS keychain, so the file alone reveals nothing and
 // can't be used on another computer. Canopy makes sure git ignores the file.

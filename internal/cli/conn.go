@@ -29,8 +29,8 @@ next to its connections file (<name>.secrets.yaml, git-ignored, key in the
 keychain): see 'canopy conn password'.
 
 Your presets live in the user config folder ('canopy conn path'). Extra read-only
-files can be added with CANOPY_CONNECTIONS (separated like PATH), for example the
-lab presets in lab/connections.yaml.`,
+files can be added with CANOPY_CONNECTIONS (separated like PATH), for example a
+team file.`,
 	}
 	c.AddCommand(newConnListCmd(g), newConnShowCmd(g), newConnSaveCmd(g), newConnRmCmd(g), newConnPathCmd(g), newConnPasswordCmd(g), &cobra.Command{
 		Use: "forget-password NAME", Short: "Remove a stored password (keychain and encrypted file)", Args: cobra.ExactArgs(1),
@@ -235,12 +235,12 @@ func newConnPasswordCmd(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "password NAME",
 		Short: "Remember a saved connection's password (keychain or encrypted file)",
-		Long: `Stores the password for a saved connection, including read-only ones such as
-the lab presets, from GNMI_PASSWORD or a prompt.
+		Long: `Stores the password for a saved connection, including read-only ones from
+CANOPY_CONNECTIONS files, from GNMI_PASSWORD or a prompt.
 
 --store keychain (default) keeps it in the OS keychain. --store file keeps it in
-an encrypted file next to the connection's file (lab/connections.yaml ->
-lab/connections.secrets.yaml): AES-256-GCM with a key that lives in this
+an encrypted file next to the connection's file (connections.yaml ->
+connections.secrets.yaml): AES-256-GCM with a key that lives in this
 computer's OS keychain, so the file is useless elsewhere. Canopy makes sure git
 ignores the file (it adds *.secrets.yaml to a .gitignore when needed).
 Storing it in one place removes it from the other.`,

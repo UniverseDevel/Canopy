@@ -66,7 +66,7 @@ const T = {
       "Opt-in, per saved device. A password is never written into the connections file itself; it can be kept in one of two places:",
       [
         "OS keychain: macOS Keychain, Windows Credential Manager or Secret Service on Linux.",
-        "Encrypted file: next to the device's connections file (`lab/connections.yaml` → `lab/connections.secrets.yaml`), encrypted with AES-256-GCM. The key is in this computer's OS keychain, so the file is useless elsewhere. Canopy makes sure git ignores it (it adds `*.secrets.yaml` to a .gitignore when needed).",
+        "Encrypted file: next to the device's connections file (`connections.yaml` → `connections.secrets.yaml`), encrypted with AES-256-GCM. The key is in this computer's OS keychain, so the file is useless elsewhere. Canopy makes sure git ignores it (it adds `*.secrets.yaml` to a .gitignore when needed).",
       ],
       "Works for read-only devices too, such as the lab ones. When a password is asked for while connecting, you can choose to remember it once it works. Storing it in one place removes it from the other; Forget removes it.",
     ],

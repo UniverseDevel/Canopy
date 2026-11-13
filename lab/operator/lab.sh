@@ -64,8 +64,8 @@ node_up() {
   export_ca
 }
 
-# export_ca copies the lab CA to lab/.tls/ca.pem, where the Canopy presets in
-# lab/connections.yaml expect it.
+# export_ca copies the lab CA to lab/.tls/ca.pem, where the lab presets (lab/README.md)
+# expect it.
 export_ca() {
   mkdir -p "$CANOPY_LAB/.tls"
   cp "$LAB_TLS/ca/ca.pem" "$CANOPY_LAB/.tls/ca.pem"
