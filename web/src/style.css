@@ -472,3 +472,6 @@ body.dragging-y { user-select: none; cursor: row-resize; }
 @keyframes flash-btn { 0%, 50% { color: var(--err); } 100% { color: var(--accent); } }
 footer .console-toggle.flash { animation: flash-btn .8s ease-in-out 3; }
 .dev-err .link { color: var(--err); text-decoration: underline; padding: 0; }
+
+/* device passwords: masked without type=password, so browsers do not offer to save them */
+input.secret { -webkit-text-security: disc; font-family: var(--mono); letter-spacing: .08em; }

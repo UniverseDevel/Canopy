@@ -92,3 +92,18 @@ export function modal(title: string, body: HTMLElement, buttons: { label: string
     (back.querySelector("input, textarea, select") as HTMLElement | null ?? back.querySelector("button.primary") as HTMLElement | null)?.focus();
   });
 }
+
+// secretInput is a masked field for device passwords that browsers don't treat
+// as a login: no type=password (which makes them offer to save it), the text
+// is hidden with -webkit-text-security instead, and password managers are told
+// to ignore it. Where that CSS isn't supported (older Firefox), it falls back
+// to a password field with autocomplete off.
+export function secretInput(attrs: Record<string, string | undefined> = {}): HTMLInputElement {
+  const masked = typeof CSS !== "undefined" && CSS.supports("-webkit-text-security", "disc");
+  const el = h("input", {
+    ...attrs, type: masked ? "text" : "password", class: ((attrs.class ?? "") + " secret").trim(),
+    autocomplete: masked ? "off" : "new-password", spellcheck: "false", autocapitalize: "off",
+    "data-1p-ignore": "true", "data-lpignore": "true", "data-bwignore": "true", "data-form-type": "other",
+  });
+  return el;
+}

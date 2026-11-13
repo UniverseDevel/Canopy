@@ -6,7 +6,7 @@ import { auditConsole } from "./console";
 import { help, openHelpIndex, setHelpNav, withHelp } from "./help";
 import { openCatalog } from "./catalog";
 import { fixturesTab } from "./fixtures";
-import { $, append, clear, copyText, field, h, modal, toast } from "./dom";
+import { $, append, clear, copyText, field, h, modal, secretInput, toast } from "./dom";
 import { Num, stringify } from "./json";
 import { VirtualList } from "./vlist";
 
@@ -446,7 +446,7 @@ async function selectDevice(d: Device) {
 }
 
 function passwordPrompt(title: string, note: string): Promise<string | null> {
-  const inp = h("input", { type: "password", placeholder: "password", autocomplete: "current-password" });
+  const inp = secretInput({ placeholder: "password" });
   return new Promise((res) => {
     inp.addEventListener("keydown", (ev: KeyboardEvent) => {
       if (ev.key === "Enter") { (inp.closest(".modal-back") as HTMLElement).remove(); res(inp.value); }
@@ -535,8 +535,8 @@ async function openDeviceDialog(edit?: Device) {
   tls.value = t ? (t.insecure ? "plain" : t.skipVerify ? "skip" : "verify") : "skip";
   const ca = h("input", { value: v(t?.caFile), placeholder: "CA file (optional)" });
   const serverName = h("input", { value: v(t?.serverName), placeholder: "server name override (optional)" });
-  const username = h("input", { value: v(t?.username), placeholder: "username", autocomplete: "username" });
-  const password = h("input", { type: "password", value: v(edit?.password), placeholder: "kept in memory only", autocomplete: "current-password" });
+  const username = h("input", { value: v(t?.username), placeholder: "username", autocomplete: "off", "data-1p-ignore": "true", "data-lpignore": "true" });
+  const password = secretInput({ value: v(edit?.password), placeholder: "kept in memory only" });
   const jumps = h("input", { value: (t?.jumps ?? []).join(", "), placeholder: "user@jump1:22, jump2 (optional)" });
   const identity = h("input", { value: (t?.identityFiles ?? [])[0] ?? "", placeholder: "key file (optional)" });
   const timeout = h("input", { type: "number", min: "1", value: String(t?.timeoutSec || 10) });
