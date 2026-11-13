@@ -260,7 +260,7 @@ export function operatorTab(ctx: OpContext) {
       toast(`Applied ${res.applied.join(", ")}`);
       x.applied = true; x.otherDevice = undefined;
       drawSamples();
-      loadResources(true);
+      followResources((rs) => { const r = findRes(rs, x); return !!r && r.ready === "True" && !notReconciled(r); }, `${x.kind} ${x.name} to be Ready`);
     } catch (e) { toast(errText(e), "err"); }
   };
   const deleteSample = async (x: Sample) => {
@@ -275,7 +275,7 @@ export function operatorTab(ctx: OpContext) {
       toast(`Deleted ${res.deleted.join(", ")}`);
       x.applied = false;
       drawSamples();
-      loadResources(true);
+      followResources((rs) => !findRes(rs, x), `${x.kind} ${x.name} to be removed`);
     } catch (e) { toast(errText(e), "err"); }
   };
 
@@ -284,30 +284,60 @@ export function operatorTab(ctx: OpContext) {
   const resCount = h("span", { class: "muted small" });
   let resSeq = 0;
   let resKey = "";
-  const loadResources = async (quiet = false) => {
+  // findRes finds a sample's resource in the list.
+  const findRes = (rs: K8sResource[], x: { kind: string; name: string }) =>
+    rs.find((r) => r.kind.toLowerCase() === x.kind.toLowerCase() && r.name === x.name);
+
+  // followResources reloads the list until done says the operator has caught
+  // up (an applied resource Ready, a deleted one gone), for up to 2 minutes.
+  let followSeq = 0;
+  let following = false; // the note is the follow's
+  const followResources = async (done: (rs: K8sResource[]) => boolean, what: string) => {
+    const seq = ++followSeq;
+    following = true;
+    try { await follow(seq, done, what); } finally { if (seq === followSeq) following = false; }
+  };
+  const follow = async (seq: number, done: (rs: K8sResource[]) => boolean, what: string) => {
+    const key = devKey();
+    const start = Date.now();
+    for (;;) {
+      const rs = await loadResources(true);
+      if (seq !== followSeq || key !== devKey()) return; // another follow, or another Device
+      if (rs && done(rs)) { resNote.textContent = ""; return; }
+      const s = Math.round((Date.now() - start) / 1000);
+      if (s >= 120) { resNote.textContent = `stopped waiting for ${what} after 2 min: Refresh to check again`; return; }
+      resNote.textContent = `waiting for ${what}… ${s} s`;
+      await new Promise((r) => setTimeout(r, 2000));
+      if (seq !== followSeq || key !== devKey()) return;
+    }
+  };
+
+  const loadResources = async (quiet = false): Promise<K8sResource[] | null> => {
     const d = dev();
-    if (!d) return;
+    if (!d) return null;
     const key = devKey();
     const seq = ++resSeq;
     if (!quiet || key !== resKey) { clear(list); resCount.textContent = ""; list.append(h("p", { class: "muted small" }, "Loading resources…")); }
-    resNote.textContent = quiet ? "updating…" : "";
+    if (!following) resNote.textContent = quiet ? "updating…" : "";
     try {
       const rs = await opApi.resources(ctx.options(), d.namespace, d.name);
-      if (seq !== resSeq) return; // a newer load (or another Device) won
+      if (seq !== resSeq) return null; // a newer load (or another Device) won
       resKey = key;
-      resNote.textContent = "";
+      if (!following) resNote.textContent = "";
       clear(list);
       addKinds(rs.map((x) => x.kind));
       const bad = rs.filter((x) => x.ready !== "True").length, paused = rs.filter((x) => x.paused).length;
       resCount.textContent = rs.length ? `${rs.length} · ${bad ? `${bad} not ready` : "all ready"}` + (paused ? ` · ${paused} paused` : "") : "";
-      if (!rs.length) { list.append(h("p", { class: "muted small" }, "No resources reference this Device (spec.deviceRef).")); return; }
+      if (!rs.length) { list.append(h("p", { class: "muted small" }, "No resources reference this Device (spec.deviceRef).")); return rs; }
       list.append(h("table", { class: "grid op-table" },
         h("thead", {}, h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Name"), h("th", {}, "Status"), h("th", {}, ""))),
         h("tbody", {}, ...rs.map(row))));
+      return rs;
     } catch (e) {
-      if (seq !== resSeq) return;
+      if (seq !== resSeq) return null;
       resNote.textContent = "";
       clear(list); list.append(h("p", { class: "err" }, errText(e)));
+      return null;
     }
   };
 
