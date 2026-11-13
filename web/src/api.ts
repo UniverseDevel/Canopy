@@ -214,8 +214,8 @@ export const opApi = {
     call<K8sResource[]>("POST", "/api/operator/resources", { options, namespace, device }),
   pause: (options: OpOptions, kind: string, namespace: string, name: string, paused: boolean) =>
     call<{ paused: boolean; condition: string }>("POST", "/api/operator/pause", { options, kind, namespace, name, paused, waitSec: 30 }),
-  verify: (options: OpOptions, session: string, kind: string, namespace: string, name: string, deleted = false) =>
-    call<Verification>("POST", "/api/operator/verify", { options, session, kind, namespace, name, deleted }, true),
+  verify: (options: OpOptions, session: string, kind: string, namespace: string, name: string, deleted = false, yaml = "") =>
+    call<Verification>("POST", "/api/operator/verify", { options, session, kind, namespace, name, deleted, yaml }, true),
 };
 
 export interface AuditEntry {

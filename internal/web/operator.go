@@ -176,13 +176,14 @@ func (s *Server) opVerify(w http.ResponseWriter, r *http.Request) {
 		Name    string `json:"name"`
 		Deleted bool   `json:"deleted"`
 		Fixture string `json:"fixture"`
+		YAML    string `json:"yaml"` // after a delete: what was applied
 	}
 	if err := decode(r, &req); err != nil {
 		writeErr(w, err, 0)
 		return
 	}
 	start := time.Now()
-	v, err := s.svc.Verify(r.Context(), s.opts(req.Options), req.Session, req.Kind, req.Namespace, req.Name, req.Deleted, req.Fixture)
+	v, err := s.svc.Verify(r.Context(), s.opts(req.Options), req.Session, req.Kind, req.Namespace, req.Name, req.Deleted, req.Fixture, req.YAML)
 	sum := req.Kind + " " + req.Namespace + "/" + req.Name
 	if v != nil {
 		sum += ": " + v.Verdict

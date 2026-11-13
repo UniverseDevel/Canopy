@@ -114,7 +114,10 @@ type Verification struct {
 // provider's fixture for that kind writes, mapped onto the live resource's
 // spec, must be on the device with the expected values (or gone, after delete).
 // The resource's own status (Ready, Paused, generation) is part of the verdict.
-func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, name string, deleted bool, fixtureName string) (*Verification, error) {
+// After a delete the resource is gone; deletedYAML, when given (the YAML that
+// was applied, e.g. a sample's), says which leaves to check instead of the
+// fixture's own resource.
+func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, name string, deleted bool, fixtureName, deletedYAML string) (*Verification, error) {
 	start := time.Now()
 	sess, err := s.Session(id)
 	if err != nil {
@@ -171,8 +174,22 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 		k = kind
 	}
 	if deleted {
-		// Spec is gone; use the fixture's own values for the removal check.
+		// Spec is gone: use what was applied when known, else the fixture's own.
 		spec, _ = fx.CR(k)["spec"].(map[string]any)
+		if deletedYAML != "" {
+			docs, err := decodeDocs([]byte(deletedYAML))
+			if err != nil {
+				return nil, apperr.Wrap(apperr.ClassUsage, apperr.CodeUsage, err).WithHint("the deleted resource's YAML could not be read")
+			}
+			for _, d := range docs {
+				if strings.EqualFold(str(d, "kind"), k) {
+					if sp, ok := d["spec"].(map[string]any); ok {
+						spec = sp
+					}
+					break
+				}
+			}
+		}
 	}
 	leaves, gone, err := fixtures.Expected(fx, k, spec)
 	if err != nil {

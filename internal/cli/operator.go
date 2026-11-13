@@ -199,7 +199,7 @@ Exit code 0 = pass, 3 = fail.`,
 			if err != nil {
 				return err
 			}
-			v, err := svc.Verify(ctx(cmd), f.o, sess.ID, args[0], f.ns, args[1], deleted, fixture)
+			v, err := svc.Verify(ctx(cmd), f.o, sess.ID, args[0], f.ns, args[1], deleted, fixture, "")
 			if err != nil {
 				return err
 			}

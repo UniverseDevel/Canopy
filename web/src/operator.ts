@@ -51,7 +51,7 @@ export function operatorTab(ctx: OpContext) {
     [...knownKinds].sort().forEach((k) => kindList.append(h("option", { value: k })));
   };
 
-  const verify = async (kind: string, name: string, deleted = false) => {
+  const verify = async (kind: string, name: string, deleted = false, yaml = "") => {
     const d = dev();
     if (!d) { showResult(h("p", { class: "err" }, "Select a Device in the cluster list first.")); return; }
     showResult(h("p", { class: "muted small" }, d.connected ? `Verifying ${kind} ${name}…` : `Connecting to ${d.namespace}/${d.name}, then verifying ${kind} ${name}…`));
@@ -59,7 +59,7 @@ export function operatorTab(ctx: OpContext) {
       const s = await ctx.session();
       if (!s) { showResult(h("p", { class: "err" }, "Not connected to the Device: see the Console.")); return; }
       refreshHead();
-      showVerification(await opApi.verify(ctx.options(), s.id, kind, d.namespace, name, deleted));
+      showVerification(await opApi.verify(ctx.options(), s.id, kind, d.namespace, name, deleted, yaml));
     } catch (e) { showResult(h("p", { class: "err" }, errText(e))); }
   };
 
@@ -146,6 +146,9 @@ export function operatorTab(ctx: OpContext) {
           : x.applied ? h("span", { class: "badge ok" }, "applied") : h("span", { class: "muted small" }, "—")),
         h("td", { class: "actions" },
           x.notServed ? null : h("button", { class: "small primary", title: "Review, edit and apply it to this Device", onclick: () => applySample(x) }, x.applied ? "Re-apply…" : "Apply…"),
+          x.notServed || x.otherDevice ? null : x.applied
+            ? h("button", { class: "small", title: "Check on the device that this sample's configuration is there (connects to it)", onclick: () => verify(x.kind, x.name) }, "Verify")
+            : h("button", { class: "small", title: "Check on the device that this sample's configuration is not there, e.g. after deleting it (connects to it)", onclick: () => verify(x.kind, x.name, true, x.yaml) }, "Verify removal"),
           x.applied && !x.otherDevice ? h("button", { class: "small", title: "Delete it from the cluster; the operator removes its configuration from the device", onclick: () => deleteSample(x) }, "Delete") : null))))));
   };
   sampleFilter.addEventListener("input", drawSamples);
@@ -203,8 +206,6 @@ export function operatorTab(ctx: OpContext) {
       x.applied = false;
       drawSamples();
       loadResources(true);
-      // ready to check, once the operator has removed it
-      delKind.value = x.kind; delName.value = x.name; delBox.open = true;
     } catch (e) { toast(errText(e), "err"); }
   };
 
@@ -251,8 +252,8 @@ export function operatorTab(ctx: OpContext) {
     await loadResources(devKey() === resKey);
   };
 
-  append(delBox, h("summary", { class: "muted small" }, "Verify a deleted resource"),
-      h("p", { class: "muted small" }, "After you delete a resource, checks on the device that its configuration is gone. " +
+  append(delBox, h("summary", { class: "muted small" }, "Verify another deleted resource"),
+      h("p", { class: "muted small" }, "For a resource that isn't a sample (samples have Verify removal on their row): after you delete it, checks on the device that its configuration is gone. " +
         "The resource no longer exists, so the paths come from this provider's test fixture for the kind; the name only labels the report."),
       h("div", { class: "row" }, field("Kind", delKind), field("Name", delName),
         h("button", { onclick: () => {
