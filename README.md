@@ -4,12 +4,12 @@ A vendor-agnostic gNMI and YANG browser. Point it at a device (directly or throu
 jump hosts), load the YANG models, walk the schema tree, read live data, copy parts of
 it as JSON or YAML, and generate the matching gNMIc commands.
 
-One Go binary, with a CLI and a local web UI. macOS and Windows are the primary
-platforms; Linux works too. No CGo.
+One Go binary, with a CLI, a local web UI and a terminal UI. macOS and Windows are the
+primary platforms; Linux works too. No CGo.
 
-Design and roadmap: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Status: M1 (connect
-and browse) done; M2 (model catalog) partly done: models are detected and downloaded from
-GitHub.
+Design: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Status: all milestones (M1–M7)
+are implemented: connect and browse, model catalog, platform profiles, configuration
+and snapshots, operator integration, recording proxy, and the terminal UI.
 
 ## Build
 
@@ -61,8 +61,15 @@ canopy generate gnmic -a 10.0.0.5:57400 --skip-verify -p /system --mode stream
 canopy ui --yang ./models
 ```
 
+```bash
+canopy tui --conn leaf1
+```
+
 `canopy ui` opens the browser at `http://127.0.0.1:<port>/?token=…`; it only listens on
-the loopback interface and refuses requests without the token.
+the loopback interface and refuses requests without the token. `canopy tui` is the same
+browsing in the terminal (for example over SSH on a jump host): schema tree, search,
+details, reads and the gNMIc command; press `/` to search, space to mark, `g` to read,
+`q` to quit.
 
 In the UI:
 
@@ -121,8 +128,21 @@ from, or takes a local folder instead.
 |---|---|---|---|
 | `srlinux` | nokia/srlinux-yang-models | tags (`v26.7.1`) | `/system/information/version` |
 | `nxos` | YangModels/yang `vendor/cisco/nx` | folders (`10.4-3` = 10.4(3)) | revision of `Cisco-NX-OS-device` in Capabilities |
-| `iosxr`, `iosxe` | YangModels/yang `vendor/cisco/xr`, `xe` | folders | platform only; pick the release |
+| `iosxr`, `iosxe` | YangModels/yang `vendor/cisco/xr`, `xe` | folders (`792` = 7.9.2) | software version (OpenConfig paths) |
 | `openconfig` | openconfig/public | tags | any OpenConfig device: newest release |
+| `junos` | Juniper/yang (submodule of YangModels/yang) | `23.4/23.4R2`, `-EVO` builds | software version (OpenConfig paths) |
+| `huawei` | Huawei/yang (submodule) | version/product, `8.22.0/ne8000-x` | platform only; pick the release |
+| `sros` | nokia/7x50_YangModels | tags (`sros_25.10.r1`) | `/state/system/version/version-number` |
+| `eos` | aristanetworks/yang | folders (`EOS-4.31.0F`) | software version (OpenConfig paths) |
+
+Platforms are recognized with **profiles** (`canopy models profiles`): YAML rules for
+the Capabilities fingerprint, where the version is read, and how a version maps to a
+release folder (`10.4(3)` → `10.4-3`). Put a file with the same `id` into the folder the
+command prints to change a profile, or a new one to add a platform. The IOS XR, IOS XE,
+Junos, SR OS and EOS version paths haven't been checked on real devices yet.
+
+Folders inside Git submodules of YangModels/yang (Juniper, Huawei, Nokia) are followed
+to the pinned commit of the other repository.
 
 ```bash
 canopy models versions nxos
@@ -135,6 +155,32 @@ canopy tree --models nxos@10.4-3 --find nxosVersion
 ```bash
 canopy models detect --conn leaf1 --fetch
 ```
+
+The **catalog** indexes the modules of every downloaded release (and of releases only
+listed with `canopy models index`, from their file names, without downloading), so you
+can search them and see which releases contain a module. The UI has it under
+**Catalog** in the Models panel.
+
+```bash
+canopy models search openconfig interf
+```
+
+```bash
+canopy models containing openconfig-interfaces
+```
+
+```bash
+canopy models index nxos 10.4-3 10.5-1
+```
+
+`canopy models prefetch SOURCE VERSION...` downloads sets ahead of time for offline use;
+versions may be written as the device reports them (`canopy models prefetch nxos
+"10.4(3)"`).
+
+When a device's models aren't published, take them from the device: `canopy models
+from-device --conn leaf1` (UI: **From device**) opens NETCONF over SSH (port 830) with
+the same credentials and jump hosts and downloads every schema with `get-schema`
+(RFC 6022). Read only; the modules are cached per device.
 
 Standard IETF modules come from YangModels/yang `standard/ietf/RFC` and are only used to
 resolve imports. A module whose imports can't be found anywhere is skipped and listed as

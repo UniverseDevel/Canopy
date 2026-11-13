@@ -755,7 +755,25 @@ packages to `pkg/` deliberately.
 
 M1 is useful on its own: it already replaces most ad-hoc `gnmic` exploration.
 
-**Status (2026-11-12):** M1 done. M2 partly done (`internal/models`): `github` sources
+**Status (2026-11-13): all milestones are implemented.**
+
+- M1: done.
+- M2: done. `github` sources by tag or folder, Git submodules followed recursively to
+  the pinned commit (Juniper, Huawei, Nokia in YangModels/yang), the SQLite catalog
+  (`internal/catalog`, `modernc.org/sqlite`, FTS5) indexing downloaded releases in full
+  and other releases from file listings, the match report, and `models prefetch`.
+  Not done from the original design: a `git` source (partial clone) and blob-SHA
+  content addressing; the cache is per release.
+- M3: done. YAML platform profiles (`internal/models/profiles`, user overrides in
+  `<config>/profiles`) for SR Linux, NX-OS, IOS XR, IOS XE, Junos, Huawei, SR OS, EOS
+  and OpenConfig. The version paths of IOS XR, IOS XE, Junos, SR OS and EOS are
+  unverified on devices.
+- M4: done, including the `device` model source: NETCONF `get-schema`
+  (`internal/netconf`), verified against SR Linux.
+- M5, M6: done.
+- M7: done: keychain, packaging, docs, and the TUI (`canopy tui`, `internal/tui`, tview).
+
+Earlier status (2026-11-12): M1 done. M2 partly done (`internal/models`): `github` sources
 versioned by tags (tarball, SR Linux, OpenConfig) or folders (Trees API plus raw files,
 YangModels/yang NX-OS, IOS XR, IOS XE); listings and model sets cached in the user cache
 folder; shared IETF folders used only to resolve imports; modules with missing imports
