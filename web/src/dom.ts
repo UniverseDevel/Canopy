@@ -1,7 +1,7 @@
 // Tiny DOM helpers. Text is always set with textContent, never innerHTML.
 
 type Attrs = Record<string, string | number | boolean | ((e: any) => void) | undefined>;
-type Child = Node | string | null | undefined | false;
+export type Child = Node | string | null | undefined | false;
 
 export function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
   const el = document.createElement(tag);

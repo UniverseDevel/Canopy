@@ -3,7 +3,7 @@
 // Listing needs only the cluster; Verify connects to the Device when needed.
 
 import { K8sResource, opApi, OpOptions, Sample, Session, Verification } from "./api";
-import { append, clear, copyText, field, h, modal, toast } from "./dom";
+import { append, clear, copyText, field, h, modal, toast, type Child } from "./dom";
 import { errText } from "./config";
 import { help } from "./help";
 import { stringify } from "./json";
@@ -30,28 +30,42 @@ export function operatorTab(ctx: OpContext) {
   const head = h("div", { class: "op-head" });
   const list = h("div", { class: "op-list" });
   const result = h("div", { class: "op-result" });
-  const delKind = h("input", { placeholder: "kind, e.g. banner" });
-  const delName = h("input", { placeholder: "name" });
+  const kindList = h("datalist", { id: "op-kinds" });
+  const delKind = h("input", { placeholder: "kind, e.g. Banner", list: "op-kinds" });
+  const delName = h("input", { placeholder: "name (optional)" });
+  const delBox = h("details", { class: "op-deleted" });
 
   const dev = () => ctx.device();
+  // the result sits below the lists: bring it into view when it changes
+  const showResult = (...nodes: Child[]) => {
+    clear(result);
+    append(result, ...nodes);
+    requestAnimationFrame(() => result.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+  };
+  const knownKinds = new Set<string>();
+  const addKinds = (ks: string[]) => {
+    const n = knownKinds.size;
+    ks.forEach((k) => knownKinds.add(k));
+    if (knownKinds.size === n) return;
+    clear(kindList);
+    [...knownKinds].sort().forEach((k) => kindList.append(h("option", { value: k })));
+  };
 
   const verify = async (kind: string, name: string, deleted = false) => {
     const d = dev();
-    if (!d) return;
-    clear(result);
-    result.append(h("p", { class: "muted small" }, d.connected ? `Verifying ${kind} ${name}…` : `Connecting to ${d.namespace}/${d.name}, then verifying ${kind} ${name}…`));
+    if (!d) { showResult(h("p", { class: "err" }, "Select a Device in the cluster list first.")); return; }
+    showResult(h("p", { class: "muted small" }, d.connected ? `Verifying ${kind} ${name}…` : `Connecting to ${d.namespace}/${d.name}, then verifying ${kind} ${name}…`));
     try {
       const s = await ctx.session();
-      if (!s) { clear(result); result.append(h("p", { class: "err" }, "Not connected to the Device: see the Console.")); return; }
+      if (!s) { showResult(h("p", { class: "err" }, "Not connected to the Device: see the Console.")); return; }
       refreshHead();
       showVerification(await opApi.verify(ctx.options(), s.id, kind, d.namespace, name, deleted));
-    } catch (e) { clear(result); result.append(h("p", { class: "err" }, errText(e))); }
+    } catch (e) { showResult(h("p", { class: "err" }, errText(e))); }
   };
 
   const showVerification = (v: Verification) => {
-    clear(result);
     const v2s = (x: unknown) => (x === undefined || x === null ? "" : typeof x === "string" ? JSON.stringify(x) : stringify(x, 0));
-    append(result,
+    showResult(
       h("div", { class: "row between" },
         h("h4", {}, `${v.resource.kind || ""} ${v.resource.name} · ${v.mode}`, " ", badge(v.verdict, "verdict")),
         h("button", { class: "small", onclick: () => copyText(stringify(v), "verification JSON") }, "Copy report")),
@@ -83,7 +97,7 @@ export function operatorTab(ctx: OpContext) {
       h("button", { class: "small primary", title: "Check that this resource's intent is on the device", onclick: () => verify(r.kind, r.name) }, "Verify"),
       h("button", { class: "small", onclick: () => pause(r.kind, r.name, !r.paused) }, r.paused ? "Resume" : "Pause"),
       ctx.toFixture ? h("button", { class: "small", title: "Build a test fixture for this resource (Fixtures tab)", onclick: () => ctx.toFixture!(r) }, "Fixture") : null,
-      h("button", { class: "small icon", title: "Show spec", onclick: () => { clear(result); result.append(h("h4", {}, `${r.kind} ${r.name} spec`), h("pre", { class: "code" }, stringify(r.spec ?? {}))); } }, "{}")));
+      h("button", { class: "small icon", title: "Show spec", onclick: () => showResult(h("h4", {}, `${r.kind} ${r.name} spec`), h("pre", { class: "code" }, stringify(r.spec ?? {}))) }, "{}")));
 
   const refreshHead = () => {
     clear(head);
@@ -147,6 +161,7 @@ export function operatorTab(ctx: OpContext) {
       const r = await opApi.samples(ctx.options(), d.namespace, d.name, d.provider);
       if (seq !== samplesSeq) return; // another Device was selected meanwhile
       samples = r.samples;
+      addKinds(samples.filter((x) => !x.notServed).map((x) => x.kind));
       samplesKey = key;
       const missing = samples.filter((x) => x.notServed).length;
       samplesInfo.textContent = `${samples.length} samples from ${r.dir} (the common ones and this provider's folder)` +
@@ -188,6 +203,8 @@ export function operatorTab(ctx: OpContext) {
       x.applied = false;
       drawSamples();
       loadResources(true);
+      // ready to check, once the operator has removed it
+      delKind.value = x.kind; delName.value = x.name; delBox.open = true;
     } catch (e) { toast(errText(e), "err"); }
   };
 
@@ -208,6 +225,7 @@ export function operatorTab(ctx: OpContext) {
       resKey = key;
       resNote.textContent = "";
       clear(list);
+      addKinds(rs.map((x) => x.kind));
       if (!rs.length) { list.append(h("p", { class: "muted small" }, "No resources reference this Device (spec.deviceRef).")); return; }
       list.append(h("table", { class: "grid op-table" },
         h("thead", {}, h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Name"), h("th", {}, "Status"), h("th", {}, ""), h("th", {}, ""), h("th", {}, ""))),
@@ -233,12 +251,19 @@ export function operatorTab(ctx: OpContext) {
     await loadResources(devKey() === resKey);
   };
 
+  append(delBox, h("summary", { class: "muted small" }, "Verify a deleted resource"),
+      h("p", { class: "muted small" }, "After you delete a resource, checks on the device that its configuration is gone. " +
+        "The resource no longer exists, so the paths come from this provider's test fixture for the kind; the name only labels the report."),
+      h("div", { class: "row" }, field("Kind", delKind), field("Name", delName),
+        h("button", { onclick: () => {
+          const k = delKind.value.trim();
+          if (!k) { showResult(h("p", { class: "err" }, "Enter the kind of the deleted resource (e.g. Banner).")); delKind.focus(); return; }
+          verify(k, delName.value.trim() || k.toLowerCase(), true);
+        } }, "Verify removal")), kindList);
   append(host,
     h("p", { class: "muted small" }, "The network-operator resources of the selected Device. Pause, verify on the device (connects to it), or start a test fixture. ", help("operator")),
     head, resNote, list, samplesBox,
-    h("details", { class: "op-deleted" }, h("summary", { class: "muted small" }, "Verify a deleted resource"),
-      h("div", { class: "row" }, field("Kind", delKind), field("Name", delName),
-        h("button", { onclick: () => { if (delKind.value && delName.value) verify(delKind.value.trim(), delName.value.trim(), true); } }, "Verify removal"))),
+    delBox,
     result);
   return { el: host, refresh };
 }
