@@ -764,9 +764,12 @@ M1 is useful on its own: it already replaces most ad-hoc `gnmic` exploration.
   and other releases from file listings, the match report, and `models prefetch`.
   The cache is per release; `models cache`, `models rm` and `models share` (identical
   files stored once as hard links, on request) manage its size.
-  Maybe one day: a `git` source (partial clone, for private or non-GitHub model
-  repositories) and an automatic content-addressed cache (blob SHA, files shared
+  Maybe one day: an automatic content-addressed cache (blob SHA, files shared
   without asking).
+  Decided against (2026-11-13): a `git` source and configurable or forked
+  sources. Canopy uses the built-in public repositories only; models from anywhere
+  else are loaded from a local folder (`--yang`, Local folder in the UI) or taken
+  from the device over NETCONF (`models from-device`).
 - M3: done. YAML platform profiles (`internal/models/profiles`, user overrides in
   `<config>/profiles`) for SR Linux, NX-OS, IOS XR, IOS XE, Junos, Huawei, SR OS, EOS
   and OpenConfig. The version paths of IOS XR, IOS XE, Junos, SR OS and EOS are
