@@ -102,7 +102,7 @@ export function operatorTab(ctx: OpContext) {
   };
 
   append(host,
-    h("p", { class: "muted small" }, "The network-operator resources of this Device. Pause, verify on the device, or start a test fixture. ", help("operator"), " ", help("verify")),
+    h("p", { class: "muted small" }, "The network-operator resources of this Device. Pause, verify on the device, or start a test fixture. ", help("operator")),
     head, list,
     h("details", { class: "op-deleted" }, h("summary", { class: "muted small" }, "Verify a deleted resource"),
       h("div", { class: "row" }, field("Kind", delKind), field("Name", delName),

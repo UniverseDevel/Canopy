@@ -77,12 +77,17 @@ const tree = new VirtualList<{ node: SNode; depth: number }>(24, (r) => renderTr
 const searchList = new VirtualList<SNode>(40, (n) => renderSearchRow(n));
 const treeHost = h("div", { class: "tree-host" }, tree.el);
 
-const details = h("div", { class: "details" }, h("p", { class: "muted" }, "Select a node in the tree."));
+const emptyDetails = () => h("div", { class: "empty-state" },
+  h("p", {}, "Select a node in the schema tree to see its type, description and path."),
+  h("p", { class: "muted small" }, "Tick nodes to mark their paths, then read them in the Data tab. ", help("tree")));
+const details = h("div", { class: "details" }, emptyDetails());
 
 const pathsArea = h("textarea", { rows: 4, placeholder: "Paths to read, one per line. Mark nodes in the tree to add them." });
-const typeSel = h("select", {}, ...["all", "config", "state", "operational"].map((t) => h("option", { value: t }, t)));
-const encSel = h("select", {}, h("option", { value: "" }, "encoding: auto"));
+const typeSel = h("select", { title: "Data type" }, ...["all", "config", "state", "operational"].map((t) => h("option", { value: t }, t)));
+const encSel = h("select", { title: "Encoding" }, h("option", { value: "" }, "auto"));
 const getBtn = h("button", { class: "primary", onclick: () => doGet() }, "Get");
+const untickBtn = h("button", { class: "small", title: "Untick all", hidden: true, onclick: () => { dataSel.clear(); dataList.refresh(); syncUntick(); } }, "Untick");
+function syncUntick() { untickBtn.hidden = dataSel.size === 0; }
 const resultMeta = h("div", { class: "muted small" });
 const viewSel = h("div", { class: "seg" });
 const dataHost = h("div", { class: "data-host" });
@@ -139,18 +144,15 @@ const tabBodies: Record<Tab, HTMLElement> = {
     h("div", { class: "data-top" },
       h("div", { class: "get-form" }, pathsArea,
         h("div", { class: "row" }, typeSel, encSel, getBtn,
-          h("button", { onclick: () => { setPaths([]); } }, "Clear paths"), help("read"))),
-      h("div", { class: "toolbar" }, viewSel, help("dataView"),
-        h("span", { class: "tsep" }),
-        h("button", { class: "small", title: "Expand all", onclick: () => expandData(true) }, "Expand"),
-        h("button", { class: "small", title: "Collapse all", onclick: () => expandData(false) }, "Collapse"),
-        h("span", { class: "tsep" }),
-        h("span", { class: "muted small" }, "Copy"),
-        h("button", { class: "small", title: "Copy the ticked data as JSON", onclick: () => copySelection("json") }, "Ticked JSON"),
-        h("button", { class: "small", title: "Copy the ticked data as YAML", onclick: () => copySelection("yaml") }, "Ticked YAML"),
-        h("button", { class: "small", onclick: () => copyAll("json") }, "All JSON"),
-        h("button", { class: "small", onclick: () => copyAll("yaml") }, "All YAML"),
-        h("button", { class: "small", title: "Untick all", onclick: () => { dataSel.clear(); dataList.refresh(); } }, "Untick")),
+          h("button", { title: "Remove all paths (unmarks them in the tree)", onclick: () => { setPaths([]); } }, "Clear"), help("read"))),
+      h("div", { class: "toolbar" }, viewSel,
+        h("button", { class: "small icon", title: "Expand all", onclick: () => expandData(true) }, "⊞"),
+        h("button", { class: "small icon", title: "Collapse all", onclick: () => expandData(false) }, "⊟"),
+        h("span", { class: "grow" }),
+        h("span", { class: "seg" },
+          h("button", { title: "Copy as JSON: the ticked data, or everything when nothing is ticked", onclick: () => copySmart("json") }, "Copy JSON"),
+          h("button", { title: "Copy as YAML: the ticked data, or everything when nothing is ticked", onclick: () => copySmart("yaml") }, "YAML")),
+        untickBtn, help("dataView")),
       resultMeta,
       dataHost),
     cmdBox),
@@ -185,18 +187,20 @@ function showLeftTab(t: LeftTab) {
 
 // ---------- layout: resizable panes, collapsible connection form ----------
 
+const localRow = h("div", { class: "row local-models", hidden: true }, yangInput, loadBtn);
 const markedOnlyBtn = h("button", { class: "small toggle", title: "Show only the marked paths (and what is under them)", onclick: () => setMarkedOnly(!markedOnly) }, "Marked only");
 leftBodies.Schema = h("div", { class: "left-body" },
   h("div", { class: "models-panel" },
-    h("div", { class: "row" }, h("strong", {}, "Models"), help("models"), modelSrcSel, modelVerSel, modelLoadBtn,
-      h("button", { class: "small", title: "Download the device's own YANG modules over NETCONF (get-schema)", onclick: () => modelsFromDevice() }, "From device"),
-      h("button", { class: "small", title: "Search the modules of all indexed releases", onclick: () => openCatalog({ sources: () => modelSources, load: (s, v) => selectModelUI(s, v).then(() => loadModelSet(s, v)) }) }, "Catalog")),
+    h("div", { class: "row models-row" }, h("strong", {}, "Models"), help("models"), modelSrcSel, modelVerSel, modelLoadBtn),
     modelStatus, reportLine,
-    h("details", { class: "local-models" }, h("summary", { class: "muted small" }, "Local folder instead"),
-      h("div", { class: "row" }, yangInput, loadBtn))),
+    h("div", { class: "row model-actions" },
+      h("button", { class: "link small", title: "Search the modules of all indexed releases", onclick: () => openCatalog({ sources: () => modelSources, load: (s, v) => selectModelUI(s, v).then(() => loadModelSet(s, v)) }) }, "Catalog"),
+      h("button", { class: "link small", title: "Download the device's own YANG modules over NETCONF (get-schema)", onclick: () => modelsFromDevice() }, "From device"),
+      h("button", { class: "link small", title: "Load .yang files from a folder on this computer", onclick: () => { localRow.hidden = !localRow.hidden; if (!localRow.hidden) yangInput.focus(); } }, "Local folder")),
+    localRow),
   schemaInfo,
-  h("div", { class: "tree-tools" }, searchInput, help("tree"), markedOnlyBtn, help("markedOnly"),
-    h("label", { class: "check small", title: "Name modules where they change, e.g. /srl_nokia-system:system (OpenConfig paths also get the openconfig: origin). Same-named nodes of different modules stay apart." }, qualChk, "Qualified"), help("qualified")),
+  h("div", { class: "tree-tools" }, searchInput, markedOnlyBtn,
+    h("label", { class: "check small", title: "Name modules where they change, e.g. /srl_nokia-system:system (OpenConfig paths also get the openconfig: origin). Same-named nodes of different modules stay apart." }, qualChk, "Qualified"), help("tree")),
   treeHost);
 leftBodies.Capabilities = h("div", { class: "left-body" },
   h("div", { class: "row caps-head" }, h("strong", {}, "Capabilities"), help("capabilities")), capsHost);
@@ -384,6 +388,7 @@ function opOptions(): OpOptions {
 
 async function loadCluster() {
   clusterInfo.textContent = "Loading Devices…";
+  clusterInfo.title = "";
   try {
     const r = await opApi.devices(opOptions());
     clusterInfo.textContent = `${r.context} · ${r.devices.length} Device${r.devices.length === 1 ? "" : "s"}`;
@@ -402,7 +407,9 @@ async function loadCluster() {
     // keep connected cluster devices that disappeared from the list
     for (const [k, d] of old) if (d.session && !devices.some((x) => x.key === k)) devices.push(d);
   } catch (e) {
-    clusterInfo.textContent = errText(e);
+    const full = errText(e);
+    clusterInfo.title = full;
+    clusterInfo.textContent = /kubeconfig/i.test(full) ? "No cluster: no kubeconfig found. ⚙ to choose one." : full;
   }
   renderDevices();
 }
@@ -810,7 +817,7 @@ function connected() {
   const s = S.session!;
   activeLabel.textContent = `${s.label}${s.label !== s.address ? ` (${s.address})` : ""}${s.hops?.length ? " via " + s.hops.join(" → ") : ""} · gNMI ${s.capabilities.gnmiVersion} · ${s.capabilities.models.length} models · ${s.connectMs} ms`;
   clear(encSel);
-  encSel.append(h("option", { value: "" }, `encoding: auto (${s.encoding})`),
+  encSel.append(h("option", { value: "" }, `auto (${s.encoding})`),
     ...s.capabilities.encodings.map((e) => h("option", { value: e }, e)));
   renderCaps();
   renderFooter();
@@ -865,7 +872,7 @@ function renderFooter() {
     h("span", { class: s ? "dot ok" : "dot" }), s ? `${s.label} · ${S.sessions.length} open` : "not connected",
     h("span", { class: "sep" }),
     S.schema ? `${S.schema.modules.length} modules · ${S.schema.nodes.toLocaleString()} nodes · loaded in ${S.schema.loadMs} ms` : "no models",
-    S.schema?.warnings?.length ? h("button", { class: "link", onclick: () => showWarnings() }, `${S.schema.warnings.length} warnings`) : null,
+    S.schema?.warnings?.length ? h("button", { class: "link", onclick: () => showWarnings() }, `${S.schema.warnings.length} warning${S.schema.warnings.length === 1 ? "" : "s"}`) : null,
     h("span", { class: "grow" }),
     consoleUI.btn);
 }
@@ -1190,6 +1197,7 @@ function buildData(v: unknown) {
   dnodes = [];
   dataOpen.clear();
   dataSel.clear();
+  syncUntick();
   const add = (label: string, path: string, value: unknown, depth: number, parent: number, listKey?: string): number => {
     const n: DNode = { id: dnodes.length, label, path, depth, value, parent, kids: [], leaf: isScalar(value) || (Array.isArray(value) && value.every(isScalar)), listKey };
     dnodes.push(n);
@@ -1247,7 +1255,7 @@ function renderDataRow(n: DNode) {
   const caret = h("span", { class: "caret" + (n.leaf ? " none" : "") }, n.leaf ? "" : dataOpen.has(n.id) ? "▾" : "▸");
   caret.addEventListener("click", () => { dataOpen.has(n.id) ? dataOpen.delete(n.id) : dataOpen.add(n.id); dataList.setItems(visibleData()); });
   const cb = h("input", { type: "checkbox", checked: dataSel.has(n.id), title: "Select for copying" });
-  cb.addEventListener("change", () => { cb.checked ? dataSel.add(n.id) : dataSel.delete(n.id); dataList.refresh(); });
+  cb.addEventListener("change", () => { cb.checked ? dataSel.add(n.id) : dataSel.delete(n.id); dataList.refresh(); syncUntick(); });
   const label = qualified ? n.label : bare(n.label);
   append(row, caret, cb, h("span", { class: "dkey" }, label),
     n.leaf ? h("span", { class: "dval" + (typeof n.value === "string" ? " str" : "") }, preview(n.value)) : h("span", { class: "muted" }, preview(n.value)));
@@ -1306,6 +1314,11 @@ async function copySelection(fmt: "json" | "yaml") {
   // pruned tree from the root.
   const v = dataSel.size === 1 ? dnodes[[...dataSel][0]].value : pick(0);
   try { copyText(await asText(v, fmt), `selection as ${fmt.toUpperCase()}`); } catch (e) { toast(errText(e), "err"); }
+}
+
+// copySmart copies the ticked data, or all of it when nothing is ticked.
+function copySmart(fmt: "json" | "yaml") {
+  return dataSel.size ? copySelection(fmt) : copyAll(fmt);
 }
 
 async function copyAll(fmt: "json" | "yaml") {

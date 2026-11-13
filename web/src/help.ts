@@ -156,7 +156,7 @@ const T = {
   dataView: {
     title: "Viewing and copying data", group: "Data",
     body: [
-      "Tree, JSON, YAML or flat (one `path = value` per line). Tick parts of the data to copy just those as JSON or YAML, ready for a config file or a Configure… value; All copies everything.",
+      "Tree, JSON, YAML or flat (one `path = value` per line). Copy JSON and YAML copy the ticked parts of the data, or everything when nothing is ticked, ready for a config file or a Configure… value. ⊞ and ⊟ expand and collapse the tree.",
     ],
     related: ["read", "configure"],
   },
