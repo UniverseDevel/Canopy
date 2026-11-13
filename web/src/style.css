@@ -503,3 +503,9 @@ input.secret { -webkit-text-security: disc; font-family: var(--mono); letter-spa
 .ws-section[hidden], main[hidden], .op-main[hidden], .active-label[hidden] { display: none; }
 .op-main { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: auto; padding: 8px 14px; }
 .op-main > .tab-body { max-width: 1100px; }
+
+.op-samples { margin: 10px 0; }
+.op-samples > summary { cursor: pointer; padding: 4px 0; }
+.op-samples > .row { margin: 6px 0; }
+.op-samples input[type=search] { flex: 1; }
+tr.muted td { color: var(--muted); }

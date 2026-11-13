@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/UniverseDevel/Canopy/internal/apperr"
@@ -44,6 +45,10 @@ type Client struct {
 	core    kubernetes.Interface
 	disc    discovery.DiscoveryInterface
 	mapper  meta.RESTMapper
+	dc      discoveryCache
+	kindsMu sync.Mutex
+	kinds   []ResourceKind
+	kindsAt time.Time
 }
 
 // Options select the kubeconfig and context.
@@ -87,6 +92,9 @@ func New(o Options) (*Client, error) {
 			WithHint("pass --kubeconfig or set KUBECONFIG")
 	}
 	rc.Timeout = 15 * time.Second
+	// client-go's default (5 requests/s, bursts of 10) throttled listing the
+	// operator's ~40 kinds to seconds; the API server has its own limits.
+	rc.QPS, rc.Burst = 50, 100
 	raw, _ := cc.RawConfig()
 	c := &Client{Context: raw.CurrentContext}
 	if o.Context != "" {
@@ -271,8 +279,13 @@ type ResourceKind struct {
 	Version  string `json:"version"`
 }
 
-// Kinds discovers the operator's resource kinds.
+// Kinds discovers the operator's resource kinds (cached for a few minutes).
 func (c *Client) Kinds() ([]ResourceKind, error) {
+	c.kindsMu.Lock()
+	defer c.kindsMu.Unlock()
+	if c.kinds != nil && time.Since(c.kindsAt) < discoveryTTL {
+		return c.kinds, nil
+	}
 	groups, err := c.disc.ServerGroups()
 	if err != nil {
 		return nil, k8sErr(err)
@@ -298,6 +311,7 @@ func (c *Client) Kinds() ([]ResourceKind, error) {
 		out = append(out, ResourceKind{Kind: r.Kind, Resource: r.Name, Version: version})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Kind < out[j].Kind })
+	c.kinds, c.kindsAt = out, time.Now()
 	return out, nil
 }
 
@@ -307,20 +321,39 @@ func (c *Client) Resources(ctx context.Context, ns, device string) ([]Resource, 
 	if err != nil {
 		return nil, err
 	}
-	out := []Resource{}
-	for _, k := range kinds {
+	// one List per kind, several at a time
+	per := make([][]Resource, len(kinds))
+	errs := make([]error, len(kinds))
+	parallel(len(kinds), 12, func(i int) {
+		k := kinds[i]
 		l, err := c.dyn.Resource(schema.GroupVersionResource{Group: Group, Version: k.Version, Resource: k.Resource}).Namespace(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			continue // not listable (RBAC); skip
+			errs[i] = err
+			return
 		}
-		for i := range l.Items {
-			u := &l.Items[i]
-			ref, _, _ := unstructured.NestedString(u.Object, "spec", "deviceRef", "name")
-			if ref != device {
-				continue
+		for j := range l.Items {
+			u := &l.Items[j]
+			if ref, _, _ := unstructured.NestedString(u.Object, "spec", "deviceRef", "name"); ref == device {
+				per[i] = append(per[i], toResource(u, k))
 			}
-			out = append(out, toResource(u, k))
 		}
+	})
+	out := []Resource{}
+	failed := 0
+	var firstErr error
+	for i := range kinds {
+		out = append(out, per[i]...)
+		if errs[i] != nil {
+			failed++
+			if firstErr == nil && !apierrors.IsForbidden(errs[i]) {
+				firstErr = errs[i]
+			}
+		}
+	}
+	// a kind that can't be listed for RBAC is skipped; when nothing could be
+	// listed (cluster unreachable, timeouts), say so instead of "no resources"
+	if failed == len(kinds) && firstErr != nil {
+		return nil, k8sErr(firstErr)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Kind+out[i].Name < out[j].Kind+out[j].Name })
 	return out, nil

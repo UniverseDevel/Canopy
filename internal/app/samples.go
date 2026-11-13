@@ -13,8 +13,10 @@ import (
 
 	"github.com/UniverseDevel/Canopy/internal/apperr"
 	"github.com/UniverseDevel/Canopy/internal/fixtures"
+	"github.com/UniverseDevel/Canopy/internal/k8s"
 	"gopkg.in/yaml.v3"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // Samples: network-operator's example resources (config/samples in the
@@ -35,6 +37,9 @@ type Sample struct {
 	// namespace; OtherDevice when that object points at another Device.
 	Applied     bool   `json:"applied"`
 	OtherDevice string `json:"otherDevice,omitempty"`
+	// NotServed: the cluster has no such kind (another provider's, or a CRD
+	// that isn't installed), so it can't be applied.
+	NotServed bool `json:"notServed,omitempty"`
 }
 
 const deviceNameLabel = "networking.metal.ironcore.dev/device-name"
@@ -185,15 +190,48 @@ func (s *Service) Samples(ctx context.Context, o OperatorOptions, ns, device, pr
 			}
 			enc.Close()
 			sm.YAML = buf.String()
-			if u, err := toUnstructured(d); err == nil {
-				if cur, _ := cl.GetObject(ctx, u.GroupVersionKind(), ns, sm.Name); cur != nil {
-					sm.Applied = true
-					if ref, _, _ := unstructured.NestedString(cur.Object, "spec", "deviceRef", "name"); ref != "" && ref != device {
-						sm.OtherDevice = ref
-					}
-				}
-			}
 			out = append(out, sm)
+		}
+	}
+	// What is in the cluster: one List per kind (not a Get per sample), several
+	// at a time; kinds the cluster doesn't serve are marked, not looked up again.
+	type key struct{ apiVersion, kind string }
+	var kinds []key
+	seen := map[key]bool{}
+	for _, sm := range out {
+		k := key{sm.APIVersion, sm.Kind}
+		if !seen[k] {
+			seen[k] = true
+			kinds = append(kinds, k)
+		}
+	}
+	type state struct {
+		served bool
+		refs   map[string]string // name -> spec.deviceRef.name
+	}
+	states := make([]state, len(kinds))
+	k8s.Parallel(len(kinds), 12, func(i int) {
+		gvk := schema.FromAPIVersionAndKind(kinds[i].apiVersion, kinds[i].kind)
+		items, served, err := cl.ListKind(ctx, gvk, ns)
+		st := state{served: served || err != nil, refs: map[string]string{}}
+		for _, u := range items {
+			ref, _, _ := unstructured.NestedString(u.Object, "spec", "deviceRef", "name")
+			st.refs[u.GetName()] = ref
+		}
+		states[i] = st
+	})
+	byKind := map[key]state{}
+	for i, k := range kinds {
+		byKind[k] = states[i]
+	}
+	for i := range out {
+		st := byKind[key{out[i].APIVersion, out[i].Kind}]
+		out[i].NotServed = !st.served
+		if ref, ok := st.refs[out[i].Name]; ok {
+			out[i].Applied = true
+			if ref != "" && ref != device {
+				out[i].OtherDevice = ref
+			}
 		}
 	}
 	return out, root, nil

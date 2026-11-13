@@ -71,7 +71,7 @@ export function operatorTab(ctx: OpContext) {
     try {
       const r = await opApi.pause(ctx.options(), kind, d.namespace, name, paused);
       toast(`${kind} ${name}: Paused=${r.condition || paused}`);
-      await refresh();
+      await loadResources(true);
     } catch (e) { toast(errText(e), "err"); }
   };
 
@@ -95,46 +95,69 @@ export function operatorTab(ctx: OpContext) {
         h("div", { class: "row" },
           h("button", { class: "small", title: "Pause the Device (pauses all its resources)", onclick: () => pause("device", d.name, true) }, "Pause device"),
           h("button", { class: "small", onclick: () => pause("device", d.name, false) }, "Resume device"),
-          h("button", { class: "small", onclick: refresh }, "Refresh"),
+          h("button", { class: "small", title: "Read the resources again", onclick: () => loadResources(true) }, "Refresh"),
           h("button", { class: "small", title: "Open this Device's connection in the Devices workspace: schema, data, snapshots (connects if needed)", onclick: () => ctx.browse() }, "Browse in Devices"),
           d.connected ? h("button", { class: "small", onclick: async () => { await ctx.disconnect(); refreshHead(); } }, "Disconnect") : null)));
   };
 
-  // ----- samples: network-operator's example resources, applied like Tilt's buttons
+  // ----- samples: network-operator's example resources, applied like Tilt's buttons.
+  // Loaded when the section is opened (once per Device), and kept: an apply or
+  // delete updates its row instead of loading everything again.
   const samplesInfo = h("p", { class: "muted small" });
   const samplesList = h("div", { class: "op-list" });
   const sampleFilter = h("input", { type: "search", placeholder: "Filter samples (kind or name)" });
   let samples: Sample[] = [];
+  let samplesKey = ""; // the Device the list is for
+  let samplesSeq = 0;
+  const samplesBox = h("details", { class: "op-samples" },
+    h("summary", {}, h("strong", {}, "Samples"), " ", h("span", { class: "muted small" }, "network-operator's example resources, like Tilt's sample buttons"), " ", help("samples")),
+    h("div", { class: "row" }, sampleFilter, h("button", { class: "small", title: "Read the samples and their state again", onclick: () => loadSamples(true) }, "Reload")),
+    samplesInfo, samplesList);
+  samplesBox.addEventListener("toggle", () => { if (samplesBox.open) loadSamples(); });
+  const devKey = () => { const d = dev(); return d ? `${d.namespace}/${d.name}/${d.provider}` : ""; };
+
   const drawSamples = () => {
     clear(samplesList);
     const q = sampleFilter.value.trim().toLowerCase();
-    const shown = samples.filter((x) => !q || x.kind.toLowerCase().includes(q) || x.name.toLowerCase().includes(q));
+    const shown = samples.filter((x) => !q || x.kind.toLowerCase().includes(q) || x.name.toLowerCase().includes(q))
+      .sort((a, b) => Number(!!a.notServed) - Number(!!b.notServed));
     if (!shown.length) { samplesList.append(h("p", { class: "muted small" }, samples.length ? "No sample matches." : "")); return; }
     samplesList.append(h("table", { class: "grid op-table" },
       h("thead", {}, h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Name"), h("th", {}, ""), h("th", {}, "In the cluster"), h("th", {}, ""))),
-      h("tbody", {}, ...shown.map((x) => h("tr", {},
+      h("tbody", {}, ...shown.map((x) => h("tr", { class: x.notServed ? "muted" : "" },
         h("td", {}, x.kind), h("td", {}, x.name),
         h("td", { class: "muted small" }, [x.vendor, x.secrets?.length ? `+ Secret ${x.secrets.join(", ")}` : ""].filter(Boolean).join(" · ")),
-        h("td", {}, x.otherDevice ? h("span", { class: "badge warn", title: "An object with this name exists and points at another Device" }, `used by ${x.otherDevice}`)
+        h("td", {}, x.notServed ? h("span", { class: "muted small", title: "The cluster doesn't serve this kind (another provider's, or a CRD that isn't installed)" }, "kind not in this cluster")
+          : x.otherDevice ? h("span", { class: "badge warn", title: "An object with this name exists and points at another Device" }, `used by ${x.otherDevice}`)
           : x.applied ? h("span", { class: "badge ok" }, "applied") : h("span", { class: "muted small" }, "—")),
         h("td", { class: "actions" },
-          h("button", { class: "small primary", title: "Review, edit and apply it to this Device", onclick: () => applySample(x) }, x.applied ? "Re-apply…" : "Apply…"),
+          x.notServed ? null : h("button", { class: "small primary", title: "Review, edit and apply it to this Device", onclick: () => applySample(x) }, x.applied ? "Re-apply…" : "Apply…"),
           x.applied && !x.otherDevice ? h("button", { class: "small", title: "Delete it from the cluster; the operator removes its configuration from the device", onclick: () => deleteSample(x) }, "Delete") : null))))));
   };
   sampleFilter.addEventListener("input", drawSamples);
-  const loadSamples = async () => {
+
+  const loadSamples = async (force = false) => {
     const d = dev();
-    clear(samplesList);
-    samples = [];
-    if (!d) { samplesInfo.textContent = ""; return; }
+    const key = devKey();
+    if (!d) { samples = []; samplesKey = ""; samplesInfo.textContent = ""; drawSamples(); return; }
+    if (!force && key === samplesKey) return; // already loaded for this Device
+    const seq = ++samplesSeq;
     samplesInfo.textContent = "Loading samples…";
     try {
       const r = await opApi.samples(ctx.options(), d.namespace, d.name, d.provider);
+      if (seq !== samplesSeq) return; // another Device was selected meanwhile
       samples = r.samples;
-      samplesInfo.textContent = `${samples.length} samples from ${r.dir} (the common ones and this provider's folder). Apply aims them at ${d.namespace}/${d.name}.`;
-    } catch (e) { samplesInfo.textContent = errText(e); }
+      samplesKey = key;
+      const missing = samples.filter((x) => x.notServed).length;
+      samplesInfo.textContent = `${samples.length} samples from ${r.dir} (the common ones and this provider's folder)` +
+        (missing ? `, ${missing} of a kind this cluster doesn't serve` : "") + `. Apply aims them at ${d.namespace}/${d.name}.`;
+    } catch (e) {
+      if (seq !== samplesSeq) return;
+      samplesInfo.textContent = errText(e);
+    }
     drawSamples();
   };
+
   const applySample = async (x: Sample) => {
     const d = dev();
     if (!d) return;
@@ -147,8 +170,10 @@ export function operatorTab(ctx: OpContext) {
     try {
       const res = await opApi.apply(ctx.options(), d.namespace, d.name, text.value);
       toast(`Applied ${res.applied.join(", ")}`);
+      x.applied = true; x.otherDevice = undefined;
+      drawSamples();
+      loadResources(true);
     } catch (e) { toast(errText(e), "err"); }
-    await refresh();
   };
   const deleteSample = async (x: Sample) => {
     const d = dev();
@@ -160,36 +185,57 @@ export function operatorTab(ctx: OpContext) {
     try {
       const res = await opApi.remove(ctx.options(), d.namespace, x.yaml);
       toast(`Deleted ${res.deleted.join(", ")}`);
+      x.applied = false;
+      drawSamples();
+      loadResources(true);
     } catch (e) { toast(errText(e), "err"); }
-    await refresh();
   };
 
-  const refresh = async () => {
-    clear(head); clear(list);
+  // ----- the Device's resources. quiet keeps the table while it reloads.
+  const resNote = h("span", { class: "muted small" });
+  let resSeq = 0;
+  let resKey = "";
+  const loadResources = async (quiet = false) => {
     const d = dev();
-    loadSamples();
-    if (!d) {
-      head.append(h("p", { class: "muted" }, "Select a Device in the cluster list (left) to see the network-operator resources that configure it."));
-      return;
-    }
-    refreshHead();
-    list.append(h("p", { class: "muted small" }, "Loading resources…"));
+    if (!d) return;
+    const key = devKey();
+    const seq = ++resSeq;
+    if (!quiet || key !== resKey) { clear(list); list.append(h("p", { class: "muted small" }, "Loading resources…")); }
+    resNote.textContent = quiet ? "updating…" : "";
     try {
       const rs = await opApi.resources(ctx.options(), d.namespace, d.name);
+      if (seq !== resSeq) return; // a newer load (or another Device) won
+      resKey = key;
+      resNote.textContent = "";
       clear(list);
       if (!rs.length) { list.append(h("p", { class: "muted small" }, "No resources reference this Device (spec.deviceRef).")); return; }
       list.append(h("table", { class: "grid op-table" },
         h("thead", {}, h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Name"), h("th", {}, "Status"), h("th", {}, ""), h("th", {}, ""), h("th", {}, ""))),
         h("tbody", {}, ...rs.map(row))));
-    } catch (e) { clear(list); list.append(h("p", { class: "err" }, errText(e))); }
+    } catch (e) {
+      if (seq !== resSeq) return;
+      resNote.textContent = "";
+      clear(list); list.append(h("p", { class: "err" }, errText(e)));
+    }
+  };
+
+  const refresh = async () => {
+    const d = dev();
+    clear(head);
+    if (!d) {
+      clear(list);
+      head.append(h("p", { class: "muted" }, "Select a Device in the cluster list (left) to see the network-operator resources that configure it."));
+      loadSamples();
+      return;
+    }
+    refreshHead();
+    if (samplesBox.open) loadSamples();
+    await loadResources(devKey() === resKey);
   };
 
   append(host,
     h("p", { class: "muted small" }, "The network-operator resources of the selected Device. Pause, verify on the device (connects to it), or start a test fixture. ", help("operator")),
-    head, list,
-    h("h3", {}, "Samples", help("samples")),
-    h("p", { class: "muted small" }, "network-operator's example resources (config/samples of the checkout chosen in Fixtures), like Tilt's sample buttons, aimed at this Device."),
-    h("div", { class: "row" }, sampleFilter), samplesInfo, samplesList,
+    head, resNote, list, samplesBox,
     h("details", { class: "op-deleted" }, h("summary", { class: "muted small" }, "Verify a deleted resource"),
       h("div", { class: "row" }, field("Kind", delKind), field("Name", delName),
         h("button", { onclick: () => { if (delKind.value && delName.value) verify(delKind.value.trim(), delName.value.trim(), true); } }, "Verify removal"))),

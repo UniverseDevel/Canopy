@@ -22,6 +22,11 @@ import (
 var mapperMu sync.Mutex
 
 func (c *Client) resourceFor(gvk schema.GroupVersionKind, ns string) (dynamic.ResourceInterface, error) {
+	if k, ok, err := c.lookup(gvk); err == nil && ok {
+		return c.iface(gvk, k, ns), nil
+	} else if err == nil {
+		c.forget(gvk) // maybe just installed: ask again next time
+	}
 	mapperMu.Lock()
 	if c.mapper == nil {
 		c.mapper = restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(c.disc))
