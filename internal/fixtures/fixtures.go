@@ -54,10 +54,20 @@ func Dir(operatorRepo, provider string) string {
 	return filepath.Join(operatorRepo, "test", "gnmi", "testdata", provider)
 }
 
-// FindRepo returns the operator checkout: $CANOPY_OPERATOR_REPO, or a
-// network-operator folder next to the working directory.
+// FindRepo returns the operator checkout: explicit (a device's checkout or
+// --operator-repo), else $CANOPY_OPERATOR_REPO, else a network-operator folder
+// next to the working directory. An explicit folder must be a checkout:
+// falling back to another one would quietly show the wrong fixtures.
 func FindRepo(explicit string) (string, error) {
-	cands := []string{explicit, os.Getenv("CANOPY_OPERATOR_REPO"), filepath.Join("..", "network-operator")}
+	if explicit != "" {
+		if st, err := os.Stat(filepath.Join(explicit, "test", "gnmi", "testdata")); err != nil || !st.IsDir() {
+			return "", apperr.New(apperr.ClassUsage, apperr.CodeNotFound, "%s is not a network-operator checkout (no test/gnmi/testdata)", explicit).
+				WithHint("choose the repository's top folder")
+		}
+		abs, _ := filepath.Abs(explicit)
+		return abs, nil
+	}
+	cands := []string{os.Getenv("CANOPY_OPERATOR_REPO"), filepath.Join("..", "network-operator")}
 	for _, c := range cands {
 		if c == "" {
 			continue
@@ -68,7 +78,7 @@ func FindRepo(explicit string) (string, error) {
 		}
 	}
 	return "", apperr.New(apperr.ClassUsage, apperr.CodeNotFound, "network-operator checkout not found").
-		WithHint("pass --operator-repo or set CANOPY_OPERATOR_REPO to the repository folder")
+		WithHint("choose the device's network-operator checkout (Edit device), pass --operator-repo or set CANOPY_OPERATOR_REPO")
 }
 
 // Load reads all fixtures of a provider.

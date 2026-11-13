@@ -113,3 +113,14 @@ func TestMatchUnorderedAndEmpty(t *testing.T) {
 		t.Errorf("should differ: %v %+v", ok, d)
 	}
 }
+
+func TestFindRepoExplicit(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := FindRepo(dir); err == nil {
+		t.Error("a folder without test/gnmi/testdata should not be accepted")
+	}
+	os.MkdirAll(filepath.Join(dir, "test", "gnmi", "testdata"), 0o755)
+	if got, err := FindRepo(dir); err != nil || got != dir {
+		t.Errorf("FindRepo = %q, %v", got, err)
+	}
+}

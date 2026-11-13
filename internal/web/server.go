@@ -117,6 +117,7 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("PUT /api/connections", s.connSave)
 	api.HandleFunc("DELETE /api/connections", s.connDelete)
 	api.HandleFunc("POST /api/connections/password", s.connPassword)
+	api.HandleFunc("POST /api/pick/folder", s.pickFolder)
 	api.HandleFunc("GET /api/models/sources", s.modelSources)
 	api.HandleFunc("GET /api/models/versions", s.modelVersions)
 	api.HandleFunc("POST /api/models/load", s.modelLoad)

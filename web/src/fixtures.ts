@@ -10,6 +10,10 @@ import { stringify } from "./json";
 export interface FixtureContext {
   session(): Session | null;
   options(): OpOptions;
+  // the selected device's name, if its checkout is set there
+  repoDevice(): string;
+  // lets the user choose the selected device's checkout; false if there is no saved device
+  changeRepo(): Promise<boolean>;
 }
 
 const store = {
@@ -62,11 +66,14 @@ export function fixturesTab(ctx: FixtureContext) {
       provider.append(...r.providers.map((p) => h("option", { value: p }, p)));
       const want = ctx.session()?.device?.provider || store.get("provider");
       if (want && r.providers.includes(want)) provider.value = want;
-      repoLine.textContent = `network-operator checkout: ${r.repo}`;
+      const dev = ctx.repoDevice();
+      clear(repoLine);
+      repoLine.append(`network-operator checkout: ${r.repo} `, h("span", { class: "muted" }, dev ? `(set on ${dev})` : "(default)"), " ", changeBtn);
       repoLine.className = "muted small";
       await loadFixtures();
     } catch (e) {
-      repoLine.textContent = errText(e);
+      clear(repoLine);
+      repoLine.append(errText(e), " ", changeBtn);
       repoLine.className = "err small";
     }
   };
@@ -80,6 +87,9 @@ export function fixturesTab(ctx: FixtureContext) {
   };
   provider.addEventListener("change", loadFixtures);
   const repoLine = h("p", { class: "muted small" }, "");
+  const changeBtn = h("button", { class: "link small", title: "Choose the network-operator checkout (a fork, for example) for the selected device", onclick: async () => {
+    if (await ctx.changeRepo()) loadProviders();
+  } }, "Change…");
 
   const run = async (text?: string, name?: string) => {
     const o = runOpts();

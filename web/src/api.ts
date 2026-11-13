@@ -31,7 +31,7 @@ export interface Preset {
   serverName?: string; username?: string; passwordEnv?: string; timeoutSec?: number;
   jumps?: string[]; identityFiles?: string[]; encoding?: string; yangDirs?: string[]; paths?: string[]; models?: string;
   lastSeen?: { time: string; gnmiVersion?: string; encodings?: string[]; models: number };
-  source?: string; passwordStored?: "keychain" | "file";
+  operatorRepo?: string; source?: string; passwordStored?: "keychain" | "file";
 }
 
 export interface TypeInfo {
@@ -106,6 +106,7 @@ export const api = {
   presets: () => call<Preset[]>("GET", "/api/connections"),
   savePreset: (p: Preset, keychain?: { password?: string; rememberPassword?: boolean; passwordStore?: string; forgetPassword?: boolean }) =>
     call<Preset>("PUT", "/api/connections", { ...p, ...(keychain ?? {}) }),
+  pickFolder: (title: string, start?: string) => call<{ path: string; cancelled: boolean }>("POST", "/api/pick/folder", { title, start }),
   presetPassword: (req: { name: string; password?: string; store?: string; forget?: boolean }) =>
     call<{ message: string }>("POST", "/api/connections/password", req),
   deletePreset: (name: string) => call("DELETE", `/api/connections?name=${encodeURIComponent(name)}`),
