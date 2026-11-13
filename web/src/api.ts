@@ -53,7 +53,7 @@ export interface SchemaSummary {
 }
 
 export interface NodeDetail {
-  node: SNode; ancestors: number[]; source?: string; sourceFile?: string; sourceLine?: number; sourceError?: string;
+  node: SNode; ancestors: number[]; source?: string; sourceFile?: string; sourceLine?: number; sourceError?: string; webUrl?: string;
 }
 
 export interface Update { path: string; value: unknown }

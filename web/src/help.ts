@@ -87,7 +87,8 @@ const T = {
     title: "YANG models", group: "Schema",
     body: [
       "The schema tree comes from YANG models. When a device connects, Canopy recognizes its platform from Capabilities (platform profiles for SR Linux, SR OS, NX-OS, IOS XR, IOS XE, Junos, Huawei, EOS and OpenConfig), reads its software version where the profile says how, and downloads only the matching release from GitHub into its cache.",
-      "Pick another source or version here, or load a local folder of `.yang` files instead (for offline use or your own models).",
+      "Pick another source or version here, or load a local folder of `.yang` files instead (for offline use or your own models). The list of versions is kept for a day; ↻ checks GitHub for new ones now (and picks again for a device that got a nearby release).",
+      "A node's details show its YANG source; Open on GitHub opens the same file and line in the repository, at the loaded release.",
       "Modules whose imports can't be found are skipped and listed as warnings.",
     ],
     related: ["catalog", "netconf", "cache", "tree", "capabilities"],

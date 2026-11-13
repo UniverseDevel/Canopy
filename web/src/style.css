@@ -475,3 +475,6 @@ footer .console-toggle.flash { animation: flash-btn .8s ease-in-out 3; }
 
 /* device passwords: masked without type=password, so browsers do not offer to save them */
 input.secret { -webkit-text-security: disc; font-family: var(--mono); letter-spacing: .08em; }
+
+.src-link { margin-left: 10px; font-size: 12px; color: var(--accent); text-decoration: none; }
+.src-link:hover { text-decoration: underline; }

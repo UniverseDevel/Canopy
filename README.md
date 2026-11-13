@@ -173,6 +173,11 @@ canopy models containing openconfig-interfaces
 canopy models index nxos 10.4-3 10.5-1
 ```
 
+A node's details show its YANG source with **Open on GitHub**, which opens that file and
+line in the model repository at the loaded release (tag, release folder, or the pinned
+commit for folders inside submodules). The version list is kept for a day; ↻ next to it
+checks GitHub for new versions now (`canopy models versions SOURCE --refresh`).
+
 Downloaded sets stay in the cache. `canopy models cache` lists them with their size,
 `canopy models rm SOURCE VERSION` removes one (it is downloaded again when needed), and
 `canopy models share` stores files that several sets contain once, as hard links. The UI

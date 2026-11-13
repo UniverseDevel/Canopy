@@ -67,6 +67,7 @@ let modelSources: ModelSource[] = [];
 const modelSrcSel = h("select", { title: "Model source" }, h("option", { value: "" }, "Model source…"));
 const modelVerSel = h("select", { title: "Version" }, h("option", { value: "" }, "version"));
 const modelLoadBtn = h("button", { class: "small", onclick: () => loadModelSet() }, "Load");
+const modelRefreshBtn = h("button", { class: "small icon", title: "Check GitHub for new versions now (the list is otherwise kept for a day)", onclick: () => refreshModelVersions() }, "↻");
 const modelStatus = h("div", { class: "muted small model-status" });
 const reportLine = h("div", { class: "small report-line" });
 
@@ -192,7 +193,7 @@ const localRow = h("div", { class: "row local-models", hidden: true }, yangInput
 const markedOnlyBtn = h("button", { class: "small toggle", title: "Show only the marked paths (and what is under them)", onclick: () => setMarkedOnly(!markedOnly) }, "Marked only");
 leftBodies.Schema = h("div", { class: "left-body" },
   h("div", { class: "models-panel" },
-    h("div", { class: "row models-row" }, h("strong", {}, "Models"), help("models"), modelSrcSel, modelVerSel, modelLoadBtn),
+    h("div", { class: "row models-row" }, h("strong", {}, "Models"), help("models"), modelSrcSel, modelVerSel, modelRefreshBtn, modelLoadBtn),
     modelStatus, reportLine,
     h("div", { class: "row model-actions" },
       h("button", { class: "link small", title: "Search the modules of all indexed releases", onclick: () => openCatalog({ sources: () => modelSources, load: (s, v) => selectModelUI(s, v).then(() => loadModelSet(s, v)) }) }, "Catalog"),
@@ -694,12 +695,12 @@ async function initModels() {
   modelSrcSel.addEventListener("change", () => fillModelVersions());
 }
 
-async function fillModelVersions(select?: string) {
+async function fillModelVersions(select?: string, refresh = false) {
   clear(modelVerSel);
   if (!modelSrcSel.value) { modelVerSel.append(h("option", { value: "" }, "version")); return; }
   modelVerSel.append(h("option", { value: "" }, "loading…"));
   try {
-    const vs = await modelsApi.versions(modelSrcSel.value);
+    const vs = await modelsApi.versions(modelSrcSel.value, refresh);
     clear(modelVerSel);
     modelVerSel.append(...vs.map((x) => h("option", { value: x.name, title: x.cached ? "downloaded" : "" }, x.name + (x.cached ? "  ✓" : ""))));
     if (select) modelVerSel.value = select;
@@ -707,6 +708,30 @@ async function fillModelVersions(select?: string) {
     clear(modelVerSel);
     modelVerSel.append(h("option", { value: "" }, "listing failed"));
     setModelStatus(errText(e), true);
+  }
+}
+
+// refreshModelVersions lists the source's versions from GitHub again. When the
+// active device's models were a fallback (nearest older or newest), it detects
+// again, so a release published since then is picked.
+async function refreshModelVersions() {
+  const src = modelSrcSel.value;
+  if (!src) { toast("Pick a model source first", "err"); return; }
+  const before = [...modelVerSel.options].map((o) => o.value).filter(Boolean);
+  modelRefreshBtn.disabled = true;
+  try {
+    await fillModelVersions(modelVerSel.value, true);
+    const after = [...modelVerSel.options].map((o) => o.value).filter(Boolean);
+    const added = after.filter((v) => !before.includes(v));
+    toast(added.length ? `${added.length} new version${added.length === 1 ? "" : "s"}: ${added.slice(0, 3).join(", ")}${added.length > 3 ? "…" : ""}` : "No new versions");
+    const s = S.session;
+    const prev = s ? S.perSession.get(s.id)?.models : undefined;
+    if (s && prev?.kind === "set" && prev.source === src && /^(nearest|newest)/.test(prev.note)) {
+      S.perSession.set(s.id, { ...S.perSession.get(s.id)!, models: undefined });
+      await modelsForSession(s);
+    }
+  } finally {
+    modelRefreshBtn.disabled = false;
   }
 }
 
@@ -817,7 +842,8 @@ async function modelsForSession(s: Session) {
       setModelStatus(`${d.reason}.${stale()}`, true);
       return;
     }
-    const note = d.exact ? `detected (device ${d.deviceVersion ?? ""})`.replace(" ()", "") : `nearest to ${d.want} (device ${d.deviceVersion ?? "?"})`;
+    const note = d.exact ? `detected (device ${d.deviceVersion ?? ""})`.replace(" ()", "")
+      : d.want ? `nearest to ${d.want} (device ${d.deviceVersion ?? "?"})` : "newest release (device version unknown)";
     await selectModelUI(d.source, d.version);
     if (r.schema) await schemaLoaded(r.schema);
     const name = modelSources.find((x) => x.id === d.source)?.name ?? d.source;
@@ -1219,7 +1245,9 @@ function showDetails(d: NodeDetail) {
     instHost,
     h("table", { class: "props" }, h("tbody", {}, ...rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v))))),
     n.description ? h("div", { class: "desc" }, n.description) : null,
-    d.source ? h("details", { open: true }, h("summary", {}, "YANG source"), h("pre", { class: "src" }, d.source)) : null,
+    d.source ? h("details", { open: true }, h("summary", {}, "YANG source",
+      d.webUrl ? h("a", { class: "src-link", href: d.webUrl, target: "_blank", rel: "noopener noreferrer", title: "This file and line in the model repository on GitHub", onclick: (ev: Event) => ev.stopPropagation() }, "Open on GitHub ↗") : null),
+      h("pre", { class: "src" }, d.source)) : null,
     d.sourceError ? h("p", { class: "muted small" }, `Source unavailable: ${d.sourceError}`) : null);
 }
 

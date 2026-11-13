@@ -362,6 +362,9 @@ func (s *Server) schemaNode(w http.ResponseWriter, r *http.Request) {
 	}
 	file, line, src, err := t.Source(id, 400)
 	resp := map[string]any{"node": n, "ancestors": t.Ancestors(id), "source": src, "sourceFile": file, "sourceLine": line}
+	if u, ok := s.svc.Models.WebURL(file, line); ok && file != "" {
+		resp["webUrl"] = u // the same file and line on GitHub
+	}
 	if err != nil {
 		resp["sourceError"] = err.Error()
 	}
