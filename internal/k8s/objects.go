@@ -51,6 +51,27 @@ func (c *Client) CreateObject(ctx context.Context, u *unstructured.Unstructured)
 	return out, nil
 }
 
+// ApplyObject creates or updates any object with server-side apply, as the
+// field manager "canopy" (like kubectl apply --server-side --force-conflicts).
+func (c *Client) ApplyObject(ctx context.Context, u *unstructured.Unstructured) error {
+	ri, err := c.resourceFor(u.GroupVersionKind(), u.GetNamespace())
+	if err != nil {
+		return err
+	}
+	u = u.DeepCopy()
+	u.SetResourceVersion("")
+	u.SetManagedFields(nil)
+	data, err := u.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	force := true
+	if _, err := ri.Patch(ctx, u.GetName(), types.ApplyPatchType, data, metav1.PatchOptions{FieldManager: "canopy", Force: &force}); err != nil {
+		return k8sErr(err)
+	}
+	return nil
+}
+
 // GetObject reads any object; nil, nil when it doesn't exist.
 func (c *Client) GetObject(ctx context.Context, gvk schema.GroupVersionKind, ns, name string) (*unstructured.Unstructured, error) {
 	ri, err := c.resourceFor(gvk, ns)

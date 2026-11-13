@@ -2,8 +2,8 @@
 // cluster Device selected in the sidebar, with pause/resume and QA verification.
 // Listing needs only the cluster; Verify connects to the Device when needed.
 
-import { K8sResource, opApi, OpOptions, Session, Verification } from "./api";
-import { append, clear, copyText, field, h, toast } from "./dom";
+import { K8sResource, opApi, OpOptions, Sample, Session, Verification } from "./api";
+import { append, clear, copyText, field, h, modal, toast } from "./dom";
 import { errText } from "./config";
 import { help } from "./help";
 import { stringify } from "./json";
@@ -100,9 +100,74 @@ export function operatorTab(ctx: OpContext) {
           d.connected ? h("button", { class: "small", onclick: async () => { await ctx.disconnect(); refreshHead(); } }, "Disconnect") : null)));
   };
 
+  // ----- samples: network-operator's example resources, applied like Tilt's buttons
+  const samplesInfo = h("p", { class: "muted small" });
+  const samplesList = h("div", { class: "op-list" });
+  const sampleFilter = h("input", { type: "search", placeholder: "Filter samples (kind or name)" });
+  let samples: Sample[] = [];
+  const drawSamples = () => {
+    clear(samplesList);
+    const q = sampleFilter.value.trim().toLowerCase();
+    const shown = samples.filter((x) => !q || x.kind.toLowerCase().includes(q) || x.name.toLowerCase().includes(q));
+    if (!shown.length) { samplesList.append(h("p", { class: "muted small" }, samples.length ? "No sample matches." : "")); return; }
+    samplesList.append(h("table", { class: "grid op-table" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Name"), h("th", {}, ""), h("th", {}, "In the cluster"), h("th", {}, ""))),
+      h("tbody", {}, ...shown.map((x) => h("tr", {},
+        h("td", {}, x.kind), h("td", {}, x.name),
+        h("td", { class: "muted small" }, [x.vendor, x.secrets?.length ? `+ Secret ${x.secrets.join(", ")}` : ""].filter(Boolean).join(" · ")),
+        h("td", {}, x.otherDevice ? h("span", { class: "badge warn", title: "An object with this name exists and points at another Device" }, `used by ${x.otherDevice}`)
+          : x.applied ? h("span", { class: "badge ok" }, "applied") : h("span", { class: "muted small" }, "—")),
+        h("td", { class: "actions" },
+          h("button", { class: "small primary", title: "Review, edit and apply it to this Device", onclick: () => applySample(x) }, x.applied ? "Re-apply…" : "Apply…"),
+          x.applied && !x.otherDevice ? h("button", { class: "small", title: "Delete it from the cluster; the operator removes its configuration from the device", onclick: () => deleteSample(x) }, "Delete") : null))))));
+  };
+  sampleFilter.addEventListener("input", drawSamples);
+  const loadSamples = async () => {
+    const d = dev();
+    clear(samplesList);
+    samples = [];
+    if (!d) { samplesInfo.textContent = ""; return; }
+    samplesInfo.textContent = "Loading samples…";
+    try {
+      const r = await opApi.samples(ctx.options(), d.namespace, d.name, d.provider);
+      samples = r.samples;
+      samplesInfo.textContent = `${samples.length} samples from ${r.dir} (the common ones and this provider's folder). Apply aims them at ${d.namespace}/${d.name}.`;
+    } catch (e) { samplesInfo.textContent = errText(e); }
+    drawSamples();
+  };
+  const applySample = async (x: Sample) => {
+    const d = dev();
+    if (!d) return;
+    const text = h("textarea", { rows: 16, class: "mono", spellcheck: false });
+    text.value = x.yaml;
+    const r = await modal(`Apply ${x.kind} ${x.name} to ${d.namespace}/${d.name}`, h("div", { class: "form" },
+      h("p", { class: "muted small" }, `Canopy sets the namespace to ${d.namespace}, spec.deviceRef and the device-name label to ${d.name}, and applies it (server-side apply, like kubectl apply --server-side). The operator then changes the device's configuration: lab devices only.`),
+      text), [{ label: "Apply", primary: true, value: "apply" }]);
+    if (r !== "apply") return;
+    try {
+      const res = await opApi.apply(ctx.options(), d.namespace, d.name, text.value);
+      toast(`Applied ${res.applied.join(", ")}`);
+    } catch (e) { toast(errText(e), "err"); }
+    await refresh();
+  };
+  const deleteSample = async (x: Sample) => {
+    const d = dev();
+    if (!d) return;
+    const what = [`${x.kind} ${x.name}`, ...(x.secrets ?? []).map((s) => `Secret ${s}`)].join(", ");
+    const r = await modal(`Delete ${x.kind} ${x.name}?`, h("p", {}, `Deletes ${what} from ${d.namespace}. The operator removes the configuration from ${d.name}.`),
+      [{ label: "Delete", primary: true, value: "yes" }]);
+    if (r !== "yes") return;
+    try {
+      const res = await opApi.remove(ctx.options(), d.namespace, x.yaml);
+      toast(`Deleted ${res.deleted.join(", ")}`);
+    } catch (e) { toast(errText(e), "err"); }
+    await refresh();
+  };
+
   const refresh = async () => {
     clear(head); clear(list);
     const d = dev();
+    loadSamples();
     if (!d) {
       head.append(h("p", { class: "muted" }, "Select a Device in the cluster list (left) to see the network-operator resources that configure it."));
       return;
@@ -122,6 +187,9 @@ export function operatorTab(ctx: OpContext) {
   append(host,
     h("p", { class: "muted small" }, "The network-operator resources of the selected Device. Pause, verify on the device (connects to it), or start a test fixture. ", help("operator")),
     head, list,
+    h("h3", {}, "Samples", help("samples")),
+    h("p", { class: "muted small" }, "network-operator's example resources (config/samples of the checkout chosen in Fixtures), like Tilt's sample buttons, aimed at this Device."),
+    h("div", { class: "row" }, sampleFilter), samplesInfo, samplesList,
     h("details", { class: "op-deleted" }, h("summary", { class: "muted small" }, "Verify a deleted resource"),
       h("div", { class: "row" }, field("Kind", delKind), field("Name", delName),
         h("button", { onclick: () => { if (delKind.value && delName.value) verify(delKind.value.trim(), delName.value.trim(), true); } }, "Verify removal"))),

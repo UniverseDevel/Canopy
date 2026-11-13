@@ -209,3 +209,72 @@ func kubectlPause(kind, ns, name string, paused bool) string {
 	}
 	return "kubectl annotate " + strings.ToLower(kind) + " " + name + " -n " + ns + " "+k8s.PausedAnnotation+"-"
 }
+
+// opSamples lists network-operator's sample resources for a Device.
+func (s *Server) opSamples(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		opReq
+		Device   string `json:"device"`
+		Provider string `json:"provider"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	list, dir, err := s.svc.Samples(r.Context(), s.opts(req.Options), req.Namespace, req.Device, req.Provider)
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, map[string]any{"dir": dir, "samples": list})
+}
+
+// opApply applies objects (a sample, maybe edited) to a Device; opRemove
+// deletes them. Both change the device's configuration through the operator.
+func (s *Server) opApply(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		opReq
+		Device string `json:"device"`
+		YAML   string `json:"yaml"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	start := time.Now()
+	done, applied, err := s.svc.ApplySamples(r.Context(), s.opts(req.Options), req.Namespace, req.Device, req.YAML)
+	cmd := "kubectl apply --server-side --field-manager=canopy --force-conflicts -f - <<'EOF'\n" + applied + "EOF"
+	ps := "@'\n" + applied + "'@ | kubectl apply --server-side --field-manager=canopy --force-conflicts -f -"
+	s.audit.add(AuditEntry{Action: "apply", Summary: strings.Join(done, ", ") + " for Device " + req.Namespace + "/" + req.Device, OK: err == nil, Error: errString(err),
+		Ms: time.Since(start).Milliseconds(), Command: map[string]string{"bash": cmd, "powershell": ps}})
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, map[string]any{"applied": done})
+}
+
+func (s *Server) opRemove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		opReq
+		YAML string `json:"yaml"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	start := time.Now()
+	done, err := s.svc.DeleteSamples(r.Context(), s.opts(req.Options), req.Namespace, req.YAML)
+	var cmds []string
+	for _, d := range done {
+		cmds = append(cmds, "kubectl delete -n "+req.Namespace+" "+strings.ToLower(strings.Replace(d, "/", " ", 1)))
+	}
+	cmd := strings.Join(cmds, "\n")
+	s.audit.add(AuditEntry{Action: "delete", Summary: strings.Join(done, ", ") + " in " + req.Namespace, OK: err == nil, Error: errString(err),
+		Ms: time.Since(start).Milliseconds(), Command: map[string]string{"bash": cmd, "powershell": cmd}})
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, map[string]any{"deleted": done})
+}

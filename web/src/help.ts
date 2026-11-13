@@ -10,7 +10,7 @@ import { append, clear, h, modal } from "./dom";
 
 export type Target = "tab:Data" | "tab:Snapshots" | "tab:Resources" | "tab:Fixtures" | "left:Schema" | "left:Capabilities" | "console";
 
-export type TopicId = "devices" | "connect" | "tls" | "jump" | "keychain" | "cluster" | "models" | "catalog" | "cache" | "netconf" | "tree" | "qualified" | "markedOnly" | "capabilities" | "read" | "dataView" | "command" | "configure" | "snapshots" | "operator" | "verify" | "fixtures" | "fixtureRun" | "shadow" | "fixtureBuild" | "console";
+export type TopicId = "devices" | "connect" | "tls" | "jump" | "keychain" | "cluster" | "models" | "catalog" | "cache" | "netconf" | "tree" | "qualified" | "markedOnly" | "capabilities" | "read" | "dataView" | "command" | "configure" | "snapshots" | "operator" | "samples" | "verify" | "fixtures" | "fixtureRun" | "shadow" | "fixtureBuild" | "console";
 
 interface Topic {
   title: string;
@@ -223,6 +223,17 @@ const T = {
       ],
     ],
     related: ["verify", "cluster", "fixtures"],
+    go: { label: "Open Resources", target: "tab:Resources" },
+  },
+  samples: {
+    title: "Samples", group: "Compare and test",
+    body: [
+      "network-operator's example resources from `config/samples` of the checkout chosen in the Fixtures tab: the common ones and those in the provider's own folder (e.g. `nokia/srlinux`). It is what Tilt's sample buttons apply, but aimed at the selected Device instead of `leaf1`.",
+      "Apply… shows the YAML to review or edit, then sets the namespace, `spec.deviceRef` and the device-name label to this Device and applies it with server-side apply (Canopy as field manager), with the Secrets the sample uses. Delete removes it again. The operator then changes or removes the configuration on the device, so use it on lab devices.",
+      "In the cluster: applied means an object of that kind and name is in the Device's namespace; \"used by\" means it points at another Device (sample names are fixed, so two Devices in one namespace share them).",
+      "Every apply and delete is in the Console with the equivalent kubectl command.",
+    ],
+    related: ["operator", "verify", "fixtures"],
     go: { label: "Open Resources", target: "tab:Resources" },
   },
   verify: {

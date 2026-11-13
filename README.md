@@ -75,8 +75,9 @@ In the UI:
 
 - Two **workspaces**, switched at the top left. **Devices** is plain gNMI: your
   devices, schema, data and snapshots. **network-operator** is a cluster's Device
-  resources: the resources that configure the selected one (pause, verify) and test
-  fixtures. They meet in two places: **Browse in Devices** opens a cluster Device's
+  resources: the resources that configure the selected one (pause, verify), the
+  network-operator **samples** to apply to it or delete again (like Tilt's sample
+  buttons, but for any Device), and test fixtures. They meet in two places: **Browse in Devices** opens a cluster Device's
   connection in the Devices workspace, and fixtures are built from snapshots. The
   cluster settings (kubeconfig, context, jump hosts) are kept in Canopy's config
   folder (`operator.json`).
