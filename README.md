@@ -66,6 +66,8 @@ the loopback interface and refuses requests without the token.
 
 In the UI:
 
+- A **?** next to each part explains what it is, how to use it, and what it works
+  with; the **?** at the top left lists every topic on one page.
 - **Paths are module-qualified** where the module changes
   (`/srl_nokia-system:system/...`), so same-named nodes from different modules
   (`system` from ietf, openconfig and the vendor) stay apart. OpenConfig paths get

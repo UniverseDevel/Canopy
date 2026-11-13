@@ -4,6 +4,7 @@
 import { ApiError, configApi, DiffResult, SetOutcome, SNode, Session } from "./api";
 import { append, clear, copyText, field, h, modal, toast } from "./dom";
 import { parse, stringify } from "./json";
+import { withHelp } from "./help";
 
 export function errText(e: unknown): string {
   if (e instanceof ApiError) {
@@ -62,7 +63,7 @@ export async function openConfigDialog(n: SNode, session: Session, onApplied: ()
     ` I want to change the configuration of ${session.label} (${session.address}). Only lab devices, with the owner's approval.`);
 
   const body = h("div", { class: "form" },
-    h("div", { class: "form-grid two" }, field("Path (fill in list keys)", path), field("Operation", op)),
+    h("div", { class: "form-grid two" }, field("Path (fill in list keys)", path), field(withHelp("Operation", "configure"), op)),
     h("div", { class: "row" }, fromDevice, fromSchema, leafHelper),
     field("Value (JSON, as JSON_IETF)", value),
     out, confirmLabel);

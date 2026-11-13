@@ -4,6 +4,7 @@
 import { api, FixtureRun, fixturesApi, K8sResource, OpOptions, Session, snapApi } from "./api";
 import { append, clear, copyText, field, h, toast } from "./dom";
 import { errText } from "./config";
+import { help, withHelp } from "./help";
 import { stringify } from "./json";
 
 export interface FixtureContext {
@@ -151,10 +152,11 @@ export function fixturesTab(ctx: FixtureContext) {
 
   append(host,
     h("section", { class: "fx-section" },
-      h("h3", {}, "Run a fixture"),
-      h("p", { class: "muted small" }, "Does what network-operator's gNMI test does, against the operator running in the cluster: loads state/preload into a shadow target, creates a Device pointing at it and the fixture's resources in a new namespace, compares the target with state/expect, deletes the resources, compares with state/delete, and removes the namespace. No real device is involved."),
+      h("p", { class: "muted small" }, "Test cases for network-operator: a resource and the device state it must produce. ", help("fixtures")),
+      h("h3", {}, "Run a fixture", help("fixtureRun")),
+      h("p", { class: "muted small" }, "Runs the fixture against the operator in the cluster, with a shadow target in place of a device."),
       repoLine,
-      h("div", { class: "form-grid" }, field("Provider", provider), field("Fixture", fixture), field("Shadow target", mode),
+      h("div", { class: "form-grid" }, field("Provider", provider), field("Fixture", fixture), field(withHelp("Shadow target", "shadow"), mode),
         field("Address the operator uses", devAddr, "how pods in the cluster reach the shadow target")),
       embeddedFields, remoteFields,
       h("div", { class: "row" }, field("Wait (s)", timeout), h("label", { class: "check" }, keep, " Keep the namespace"),
@@ -170,8 +172,8 @@ export function fixturesTab(ctx: FixtureContext) {
         h("button", { class: "primary", onclick: () => run() }, "Run")),
       viewOut, runOut),
     h("section", { class: "fx-section" },
-      h("h3", {}, "Build a fixture from snapshots"),
-      h("p", { class: "muted small" }, "On a lab device or shadow target: take a snapshot before applying the resource, one after it is Ready, and one after deleting it (Snapshots tab, same paths). Pick them here with the resource's YAML."),
+      h("h3", {}, "Build a fixture from snapshots", help("fixtureBuild")),
+      h("p", { class: "muted small" }, "Snapshots before, after applying the resource, and after deleting it, plus the resource's YAML."),
       h("div", { class: "form-grid" }, field("Title", title), field("state/preload", pre), field("state/expect", exp), field("state/delete", del)),
       field("Resource YAML", cr),
       h("div", { class: "row" }, h("button", { onclick: loadSnaps }, "Reload snapshots"), h("button", { class: "primary", onclick: build }, "Build")),

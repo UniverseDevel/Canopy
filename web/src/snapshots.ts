@@ -3,6 +3,7 @@
 
 import { Session, SnapMeta, snapApi } from "./api";
 import { append, clear, field, h, toast } from "./dom";
+import { help } from "./help";
 import { errText, renderDiff } from "./config";
 
 export interface SnapContext {
@@ -78,7 +79,7 @@ export function snapshotsTab(ctx: SnapContext) {
   onlyDevice.addEventListener("change", draw);
 
   append(host,
-    h("p", { class: "muted small" }, "A snapshot saves a read of the marked paths (Data tab) with the device and time, to compare later: before/after a change, or the device now."),
+    h("p", { class: "muted small" }, "A snapshot saves a read of the marked paths, to compare later: before/after a change, or the device now. ", help("snapshots")),
     h("div", { class: "row" }, name, note, h("button", { class: "primary", onclick: take }, "Take snapshot")),
     h("div", { class: "row" },
       h("button", { onclick: () => {

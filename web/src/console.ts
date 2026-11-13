@@ -4,6 +4,7 @@
 
 import { AuditEntry, auditApi } from "./api";
 import { clear, copyText, h } from "./dom";
+import { help } from "./help";
 
 export interface ConsoleContext {
   shell(): string;
@@ -20,7 +21,7 @@ export function auditConsole(ctx: ConsoleContext) {
   const el = h("div", { class: "console", hidden: true },
     h("div", { class: "console-head" },
       h("strong", {}, "Console"),
-      h("span", { class: "muted small" }, "Operations on devices and the equivalent commands"),
+      h("span", { class: "muted small" }, "Operations on devices and the equivalent commands"), help("console"),
       h("span", { class: "grow" }),
       filter,
       h("button", { class: "small", title: "Copy all commands", onclick: () => copyText(entries.map((e) => cmd(e)).filter(Boolean).join("\n"), "commands") }, "Copy commands"),

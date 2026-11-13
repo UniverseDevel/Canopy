@@ -3,6 +3,7 @@ import { openConfigDialog } from "./config";
 import { snapshotsTab } from "./snapshots";
 import { operatorTab } from "./operator";
 import { auditConsole } from "./console";
+import { help, openHelpIndex, setHelpNav, withHelp } from "./help";
 import { fixturesTab } from "./fixtures";
 import { $, append, clear, copyText, field, h, modal, toast } from "./dom";
 import { Num, stringify } from "./json";
@@ -50,11 +51,12 @@ const clusterList = h("div", { class: "devices cluster" });
 const clusterInfo = h("div", { class: "muted small cluster-info" }, "not loaded");
 // Full-height device column on the far left, like vertical tabs.
 const devicePanel = h("aside", { class: "device-panel" },
-  h("div", { class: "brand-row" }, h("div", { class: "brand" }, "Canopy"), h("div", { class: "muted small", id: "build" })),
+  h("div", { class: "brand-row" }, h("div", { class: "brand" }, "Canopy"), h("div", { class: "muted small", id: "build" }),
+    h("button", { class: "small icon help-index-btn", title: "Help: all topics", onclick: () => openHelpIndex() }, "?")),
   h("button", { class: "primary connect-new", onclick: () => openDeviceDialog() }, "+ Connect device"),
-  h("div", { class: "muted small section-label" }, "Devices"),
+  h("div", { class: "muted small section-label" }, "Devices", help("devices")),
   deviceList,
-  h("div", { class: "row between cluster-head" }, h("div", { class: "muted small section-label" }, "Cluster"),
+  h("div", { class: "row between cluster-head" }, h("div", { class: "muted small section-label" }, "Cluster", help("cluster")),
     h("div", { class: "row" }, h("button", { class: "small icon", title: "Reload Devices", onclick: () => loadCluster() }, "↻"),
       h("button", { class: "small icon", title: "Cluster settings", onclick: () => clusterSettings() }, "⚙"))),
   clusterInfo, clusterList);
@@ -115,7 +117,7 @@ const cmdInterval = h("input", { value: "10s", size: 5, title: "Sample interval 
 const cmdText = h("code", { class: "cmd-line", title: "Click to copy" });
 const cmdNote = h("div", { class: "muted small cmd-note" });
 const cmdBox = h("div", { class: "cmd-preview" },
-  h("div", { class: "cmd-bar" }, h("span", { class: "cmd-label" }, "gNMIc"), cmdMode, cmdInterval, shellSel,
+  h("div", { class: "cmd-bar" }, h("span", { class: "cmd-label" }, "gNMIc"), help("command"), cmdMode, cmdInterval, shellSel,
     h("span", { class: "grow" }),
     h("button", { class: "small", onclick: () => cmdText.textContent && copyText(cmdText.textContent, "command") }, "Copy")),
   cmdText, cmdNote);
@@ -136,8 +138,8 @@ const tabBodies: Record<Tab, HTMLElement> = {
     h("div", { class: "data-top" },
       h("div", { class: "get-form" }, pathsArea,
         h("div", { class: "row" }, typeSel, encSel, getBtn,
-          h("button", { onclick: () => { setPaths([]); } }, "Clear paths"))),
-      h("div", { class: "toolbar" }, viewSel,
+          h("button", { onclick: () => { setPaths([]); } }, "Clear paths"), help("read"))),
+      h("div", { class: "toolbar" }, viewSel, help("dataView"),
         h("span", { class: "tsep" }),
         h("button", { class: "small", title: "Expand all", onclick: () => expandData(true) }, "Expand"),
         h("button", { class: "small", title: "Collapse all", onclick: () => expandData(false) }, "Collapse"),
@@ -185,15 +187,16 @@ function showLeftTab(t: LeftTab) {
 const markedOnlyBtn = h("button", { class: "small toggle", title: "Show only the marked paths (and what is under them)", onclick: () => setMarkedOnly(!markedOnly) }, "Marked only");
 leftBodies.Schema = h("div", { class: "left-body" },
   h("div", { class: "models-panel" },
-    h("div", { class: "row" }, h("strong", {}, "Models"), modelSrcSel, modelVerSel, modelLoadBtn),
+    h("div", { class: "row" }, h("strong", {}, "Models"), help("models"), modelSrcSel, modelVerSel, modelLoadBtn),
     modelStatus, reportLine,
     h("details", { class: "local-models" }, h("summary", { class: "muted small" }, "Local folder instead"),
       h("div", { class: "row" }, yangInput, loadBtn))),
   schemaInfo,
-  h("div", { class: "tree-tools" }, searchInput, markedOnlyBtn,
-    h("label", { class: "check small", title: "Name modules where they change, e.g. /srl_nokia-system:system (OpenConfig paths also get the openconfig: origin). Same-named nodes of different modules stay apart." }, qualChk, "Qualified")),
+  h("div", { class: "tree-tools" }, searchInput, help("tree"), markedOnlyBtn, help("markedOnly"),
+    h("label", { class: "check small", title: "Name modules where they change, e.g. /srl_nokia-system:system (OpenConfig paths also get the openconfig: origin). Same-named nodes of different modules stay apart." }, qualChk, "Qualified"), help("qualified")),
   treeHost);
-leftBodies.Capabilities = h("div", { class: "left-body" }, capsHost);
+leftBodies.Capabilities = h("div", { class: "left-body" },
+  h("div", { class: "row caps-head" }, h("strong", {}, "Capabilities"), help("capabilities")), capsHost);
 const leftPane = h("section", { class: "pane left" }, leftTabBar, leftBodies.Schema, leftBodies.Capabilities);
 const centerPane = h("section", { class: "pane center" }, details);
 const rightPane = h("section", { class: "pane right" }, tabBar, ...tabs.map((t) => tabBodies[t]));
@@ -242,6 +245,12 @@ function mount() {
   setupSplitters();
   showTab("Data");
   showLeftTab("Schema");
+  setHelpNav((t) => {
+    if (t === "console") { if (consoleUI.el.hidden) consoleUI.btn.click(); return; }
+    const [kind, name] = t.split(":");
+    if (kind === "tab") showTab(name as Tab);
+    else showLeftTab(name as LeftTab);
+  });
   renderViewSel();
   let searchTimer = 0;
   searchInput.addEventListener("input", () => {
@@ -407,7 +416,7 @@ async function clusterSettings() {
   const id = h("input", { value: store.get("op.identity"), placeholder: (d.identityFiles ?? [])[0] || "key file (optional)" });
   const r = await modal("Cluster (operator mode)", h("div", { class: "form" },
     h("p", { class: "muted small" }, "Canopy reads network-operator's Devices from this cluster and connects to them as the operator does (address, credentials and CA from the Device's Secrets). Device addresses are often only reachable from the cluster network; give a jump host for that. Empty fields use the defaults Canopy was started with."),
-    h("div", { class: "form-grid" }, field("Kubeconfig", kc), field("Context", cx), field("SSH jump hosts to devices", j), field("SSH key file", id)),
+    h("div", { class: "form-grid" }, field("Kubeconfig", kc), field("Context", cx), field(withHelp("SSH jump hosts to devices", "jump"), j), field("SSH key file", id)),
     info?.error ? h("p", { class: "err small" }, info.error) : null),
     [{ label: "Save and reload", primary: true, value: "ok" }]);
   if (r !== "ok") return;
@@ -550,17 +559,17 @@ async function openDeviceDialog(edit?: Device) {
   const saveFields = h("div", { class: "form" },
     h("div", { class: "form-grid" },
       field("Description", desc), field("Password environment variable", pwEnv, "Used when no password is typed.")),
-    h("label", { class: "check" }, keychain, " Remember the typed password in the OS keychain (not in any file)"),
+    h("label", { class: "check" }, keychain, " Remember the typed password in the OS keychain (not in any file)", help("keychain")),
     p && !p.readOnly ? h("label", { class: "check" }, forget, " Forget the password stored in the keychain") : null);
   const syncSave = () => { saveFields.hidden = !save.checked; };
   save.addEventListener("change", syncSave);
   syncSave();
   const body = h("div", { class: "form" },
     h("div", { class: "form-grid" },
-      field("Name", name), field("Target", address), field("Security", tls), field("Timeout (s)", timeout),
+      field("Name", name), field(withHelp("Target", "connect"), address), field(withHelp("Security", "tls"), tls), field("Timeout (s)", timeout),
       field("CA file", ca), field("TLS server name", serverName), field("Username", username), field("Password", password),
-      field("SSH jump hosts", jumps, "comma-separated chain"), field("SSH key file", identity),
-      field("YANG models", modelSrc), field("Model version", modelVer)),
+      field(withHelp("SSH jump hosts", "jump"), jumps, "comma-separated chain"), field("SSH key file", identity),
+      field(withHelp("YANG models", "models"), modelSrc), field("Model version", modelVer)),
     h("label", { class: "check" }, save, " Save this device (passwords never go into the file)"),
     saveFields);
   const buttons = [{ label: "Connect", primary: true, value: "connect" }, { label: "Add to list", value: "add" }];
@@ -1107,7 +1116,8 @@ function showDetails(d: NodeDetail) {
           if (!S.session) { toast("Connect a device first", "err"); return; }
           openConfigDialog(n, S.session, () => { if (markedPaths().length) doGet(); }, { path: np, shell });
         },
-      }, "Configure…") : null),
+      }, "Configure…") : null,
+      n.config ? help("configure") : null),
     instHost,
     h("table", { class: "props" }, h("tbody", {}, ...rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v))))),
     n.description ? h("div", { class: "desc" }, n.description) : null,

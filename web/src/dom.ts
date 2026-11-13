@@ -67,7 +67,7 @@ export async function copyText(text: string, what: string) {
   }
 }
 
-export function field(label: string, input: HTMLElement, hint?: string) {
+export function field(label: string | Node, input: HTMLElement, hint?: string) {
   return h("label", { class: "field" }, h("span", {}, label), input, hint ? h("small", {}, hint) : null);
 }
 

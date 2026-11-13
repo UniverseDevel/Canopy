@@ -4,6 +4,7 @@
 import { K8sResource, opApi, OpOptions, Session, Verification } from "./api";
 import { append, clear, copyText, field, h, toast } from "./dom";
 import { errText } from "./config";
+import { help } from "./help";
 import { stringify } from "./json";
 
 export interface OpContext {
@@ -101,7 +102,7 @@ export function operatorTab(ctx: OpContext) {
   };
 
   append(host,
-    h("p", { class: "muted small" }, "Verify takes the provider's test fixture for the resource's kind (network-operator test/gnmi/testdata), maps the device leaves it writes onto this resource's spec, and reads them from the device."),
+    h("p", { class: "muted small" }, "The network-operator resources of this Device. Pause, verify on the device, or start a test fixture. ", help("operator"), " ", help("verify")),
     head, list,
     h("details", { class: "op-deleted" }, h("summary", { class: "muted small" }, "Verify a deleted resource"),
       h("div", { class: "row" }, field("Kind", delKind), field("Name", delName),
