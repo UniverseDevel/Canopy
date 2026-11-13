@@ -149,7 +149,10 @@ const consoleUI = auditConsole({ shell });
 const tabs = ["Data", "Snapshots"] as const; // Devices workspace, right pane
 const opTabs = ["Resources", "Fixtures"] as const; // network-operator workspace
 const fxTab = fixturesTab({
-  provider: () => selectedCluster()?.k8s?.provider ?? "",
+  device: () => {
+    const d = selectedCluster();
+    return d?.k8s ? { key: d.key, name: d.name, provider: d.k8s.provider, address: d.target.address, tls: !!d.k8s.tls } : null;
+  },
   options: () => opOptions(), pickFolder: (t, s) => pickFolder(t, s),
   toSnapshots: () => showTab("Snapshots"),
 });
@@ -348,7 +351,7 @@ interface Device {
   state: "off" | "busy" | "on" | "err";
   error?: string;
   password?: string;
-  k8s?: { namespace: string; name: string; ready: string; paused: boolean; provider: string };
+  k8s?: { namespace: string; name: string; ready: string; paused: boolean; provider: string; tls?: boolean };
 }
 const devices: Device[] = [];
 let selectedKey = "";
@@ -502,7 +505,7 @@ async function loadCluster() {
       Object.assign(d, {
         name: `${x.namespace}/${x.name}`, target: { address: x.address, jumps: opSettings.jumps?.length ? opSettings.jumps : opDefaults.jumps },
         description: `${x.provider}\nphase ${x.phase ?? "?"}`,
-        k8s: { namespace: x.namespace, name: x.name, ready: x.ready, paused: x.paused, provider: x.provider },
+        k8s: { namespace: x.namespace, name: x.name, ready: x.ready, paused: x.paused, provider: x.provider, tls: x.tls },
       });
       devices.push(d);
     }

@@ -1,14 +1,18 @@
 // Fixtures tab: build network-operator test fixtures (.txtar) from snapshots,
 // and run fixtures against the operator in the cluster with a shadow target.
 
-import { api, FixtureRun, fixturesApi, K8sResource, OpOptions, RepoInfo, snapApi } from "./api";
+import { api, FixtureRun, fixturesApi, K8sResource, OpOptions, RepoInfo, SnapMeta, snapApi } from "./api";
 import { append, clear, copyText, field, h, toast } from "./dom";
 import { errText } from "./config";
 import { help, withHelp } from "./help";
 import { stringify } from "./json";
 
+// FixtureDevice is the cluster Device selected in the sidebar: what can be
+// filled in from it.
+export interface FixtureDevice { key: string; name: string; provider: string; address: string; tls: boolean }
+
 export interface FixtureContext {
-  provider(): string; // of the cluster Device selected in the sidebar, if any
+  device(): FixtureDevice | null;
   toSnapshots(): void; // open the Snapshots tab (Devices workspace)
   options(): OpOptions;
   // opens the system's folder dialog; "" when cancelled
@@ -63,20 +67,38 @@ export function fixturesTab(ctx: FixtureContext) {
       const r = await fixturesApi.list(ctx.options());
       clear(provider);
       provider.append(...r.providers.map((p) => h("option", { value: p }, p)));
-      const want = ctx.provider() || store.get("provider");
+      const d = ctx.device();
+      const want = d?.provider || store.get("provider");
       if (want && r.providers.includes(want)) provider.value = want;
+      // A newly selected Device: take what it tells (the operator talks TLS to
+      // it if its Device has TLS). Later edits stay until another Device.
+      if (d && d.key !== lastDevice) {
+        lastDevice = d.key;
+        tls.checked = d.tls;
+        deviceNote.textContent = `Filled in from ${d.name}: provider ${d.provider}${r.providers.includes(d.provider) ? "" : " (no fixtures folder for it in this checkout)"}, TLS ${d.tls ? "on" : "off"}.`;
+      } else if (!d) deviceNote.textContent = "";
       await showRepo();
       await loadFixtures();
     } catch (e) {
       await showRepo(errText(e));
     }
   };
+  let lastDevice = "";
+  let wantKind = "", wantName = ""; // from a resource handed over by the Resources tab
+  const deviceNote = h("p", { class: "muted small" });
   const loadFixtures = async () => {
     clear(fixture);
     if (!provider.value) return;
     try {
       const r = await fixturesApi.list(ctx.options(), provider.value);
       fixture.append(...r.fixtures.map((f) => h("option", { value: f.file, title: f.title }, `${f.file} — ${f.kinds.join(", ")}`)));
+      if (wantKind) {
+        // the fixture for the resource's kind; with several, one named like the resource
+        const k = wantKind.toLowerCase();
+        const fit = r.fixtures.filter((f) => f.kinds.some((x) => x.toLowerCase() === k));
+        const best = fit.find((f) => wantName && f.file.toLowerCase().includes(wantName.toLowerCase())) ?? fit[0];
+        if (best) fixture.value = best.file;
+      }
     } catch (e) { toast(errText(e), "err"); }
   };
   provider.addEventListener("change", loadFixtures);
@@ -147,14 +169,29 @@ export function fixturesTab(ctx: FixtureContext) {
   const out = h("textarea", { rows: 14, class: "mono", spellcheck: false, placeholder: "The fixture appears here; you can edit it before saving or running." });
   const saveName = h("input", { placeholder: "file name, e.g. banner-prelogin" });
 
-  const loadSnaps = async () => {
+  // loadSnaps lists the snapshots, the selected Device's first. With guess, it
+  // also picks preload/expect/delete when exactly one of the Device's
+  // snapshots is named for each role (pre/before, post/after/expect, del).
+  const loadSnaps = async (guess = false) => {
     try {
-      const l = await snapApi.list();
+      const d = ctx.device();
+      const mine = (m: SnapMeta) => !!d && (m.address === d.address || m.device === d.name);
+      const l = (await snapApi.list()).sort((a, b) => Number(mine(b)) - Number(mine(a)) || b.time.localeCompare(a.time));
       for (const sel of [pre, exp, del]) {
         const cur = sel.value;
         clear(sel);
-        sel.append(h("option", { value: "" }, "—"), ...l.map((m) => h("option", { value: m.name }, `${m.name} (${m.device}, ${m.leaves} leaves)`)));
+        sel.append(h("option", { value: "" }, "—"), ...l.map((m) => h("option", { value: m.name }, `${mine(m) ? "● " : ""}${m.name} (${m.device}, ${m.leaves} leaves)`)));
         sel.value = cur;
+      }
+      if (guess && d) {
+        const own = l.filter(mine);
+        const pick = (sel: HTMLSelectElement, re: RegExp) => {
+          const hit = own.filter((m) => re.test(m.name.toLowerCase()));
+          if (hit.length === 1 && !sel.value) sel.value = hit[0].name;
+        };
+        pick(pre, /(^|[^a-z])(pre|before|preload)([^a-z]|$)/);
+        pick(exp, /(^|[^a-z])(post|after|expect|applied)([^a-z]|$)/);
+        pick(del, /(^|[^a-z])(del|delete|deleted|removed)([^a-z]|$)/);
       }
     } catch { /* none */ }
   };
@@ -180,7 +217,7 @@ export function fixturesTab(ctx: FixtureContext) {
       h("p", { class: "muted small" }, "Test cases for network-operator: a resource and the device state it must produce. ", help("fixtures")),
       h("h3", {}, "Run a fixture", help("fixtureRun")),
       h("p", { class: "muted small" }, "Runs the fixture against the operator in the cluster, with a shadow target in place of a device."),
-      repoLine,
+      repoLine, deviceNote,
       h("div", { class: "form-grid" }, field("Provider", provider), field("Fixture", fixture), field(withHelp("Shadow target", "shadow"), mode),
         field("Address the operator uses", devAddr, "how pods in the cluster reach the shadow target")),
       embeddedFields, remoteFields,
@@ -219,7 +256,9 @@ export function fixturesTab(ctx: FixtureContext) {
     try { cr.value = (await api.format("yaml", obj)).text; } catch { cr.value = stringify(obj); }
     if (!title.value) title.value = `${r.kind} ${r.name}`;
     if (!saveName.value) saveName.value = `${r.kind.toLowerCase()}-${r.name}`;
-    loadSnaps();
+    wantKind = r.kind; wantName = r.name;
+    loadSnaps(true);
+    loadFixtures();
   };
 
   const refresh = () => { loadProviders(); loadSnaps(); };
