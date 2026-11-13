@@ -25,7 +25,7 @@ const T = {
   devices: {
     title: "Devices", group: "Devices",
     body: [
-      "Canopy has two workspaces, switched at the top left: Devices (this one: plain gNMI) and network-operator (a cluster's Devices and resources).",
+      "Canopy has two workspaces, switched at the top left: Devices (this one: plain gNMI) and NetOp (network-operator: a cluster's Devices and resources).",
       "The devices you can connect to: the ones saved in your connections file, plus any connected without saving (tagged \"not saved\", gone when Canopy restarts), and cluster Devices while they are connected (tagged \"cluster\", from Browse in Devices). Several can be connected at once; click a connected device to switch to it. Each keeps its own paths, data and models.",
       "Connections live in Canopy's server, not in the page, so reloading the page keeps them.",
       "Pencil edits a device: change it, rename it or delete it. Every change is written to the connections file it came from.",

@@ -210,8 +210,8 @@ function setWorkspace(w: Workspace) {
   workspace = w;
   store.set("workspace", w);
   clear(wsSwitch);
-  for (const [x, label] of [["devices", "Devices"], ["operator", "network-operator"]] as const) {
-    wsSwitch.append(h("button", { class: x === w ? "active" : "", title: x === "devices" ? "Your devices: schema, data, snapshots" : "A cluster's network-operator Devices: resources, verify, fixtures", onclick: () => setWorkspace(x) }, label));
+  for (const [x, label] of [["devices", "Devices"], ["operator", "NetOp"]] as const) {
+    wsSwitch.append(h("button", { class: x === w ? "active" : "", title: x === "devices" ? "Your devices: schema, data, snapshots" : "NetOp: a cluster's network-operator Devices: resources, samples, verify, fixtures", onclick: () => setWorkspace(x) }, label));
   }
   devSection.hidden = mainEl.hidden = w !== "devices";
   clusterSection.hidden = opMain.hidden = w !== "operator";
