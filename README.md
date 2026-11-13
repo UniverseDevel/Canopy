@@ -73,6 +73,13 @@ details, reads and the gNMIc command; press `/` to search, space to mark, `g` to
 
 In the UI:
 
+- Two **workspaces**, switched at the top left. **Devices** is plain gNMI: your
+  devices, schema, data and snapshots. **network-operator** is a cluster's Device
+  resources: the resources that configure the selected one (pause, verify) and test
+  fixtures. They meet in two places: **Browse in Devices** opens a cluster Device's
+  connection in the Devices workspace, and fixtures are built from snapshots. The
+  cluster settings (kubeconfig, context, jump hosts) are kept in Canopy's config
+  folder (`operator.json`).
 - A **?** next to each part explains what it is, how to use it, and what it works
   with; the **?** at the top left lists every topic on one page.
 - **Paths are module-qualified** where the module changes
@@ -92,7 +99,7 @@ In the UI:
   kept by the server and appended to `audit.jsonl` in Canopy's config folder.
 - Sessions live in the server: reloading the page keeps the connections.
 - **Fixtures** builds network-operator test fixtures (`.txtar`) from snapshots and a
-  resource's YAML (or from a resource in the Operator tab), saves them into the
+  resource's YAML (or from a resource in the Resources tab), saves them into the
   provider's `test/gnmi/testdata` folder, and runs them against the operator in the
   cluster. A run does what the operator's gNMI test does, with a shadow target in
   place of the device: preload, create a Device and the resources in a new

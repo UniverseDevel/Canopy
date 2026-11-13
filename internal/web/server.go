@@ -140,6 +140,8 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("POST /api/snapshots/diff", s.snapshotDiff)
 	api.HandleFunc("DELETE /api/snapshots", s.snapshotDelete)
 	api.HandleFunc("GET /api/operator/info", s.opInfo)
+	api.HandleFunc("GET /api/operator/settings", s.opSettingsGet)
+	api.HandleFunc("PUT /api/operator/settings", s.opSettingsPut)
 	api.HandleFunc("POST /api/operator/devices", s.opDevices)
 	api.HandleFunc("POST /api/operator/connect", s.opConnect)
 	api.HandleFunc("POST /api/operator/resources", s.opResources)

@@ -8,7 +8,7 @@
 
 import { append, clear, h, modal } from "./dom";
 
-export type Target = "tab:Data" | "tab:Snapshots" | "tab:Operator" | "tab:Fixtures" | "left:Schema" | "left:Capabilities" | "console";
+export type Target = "tab:Data" | "tab:Snapshots" | "tab:Resources" | "tab:Fixtures" | "left:Schema" | "left:Capabilities" | "console";
 
 export type TopicId = "devices" | "connect" | "tls" | "jump" | "keychain" | "cluster" | "models" | "catalog" | "cache" | "netconf" | "tree" | "qualified" | "markedOnly" | "capabilities" | "read" | "dataView" | "command" | "configure" | "snapshots" | "operator" | "verify" | "fixtures" | "fixtureRun" | "shadow" | "fixtureBuild" | "console";
 
@@ -25,7 +25,8 @@ const T = {
   devices: {
     title: "Devices", group: "Devices",
     body: [
-      "The devices you can connect to: the ones saved in your connections file, plus any connected without saving (tagged \"not saved\", gone when Canopy restarts). Several can be connected at once; click a connected device to switch to it. Each keeps its own paths, data and models.",
+      "Canopy has two workspaces, switched at the top left: Devices (this one: plain gNMI) and network-operator (a cluster's Devices and resources).",
+      "The devices you can connect to: the ones saved in your connections file, plus any connected without saving (tagged \"not saved\", gone when Canopy restarts), and cluster Devices while they are connected (tagged \"cluster\", from Browse in Devices). Several can be connected at once; click a connected device to switch to it. Each keeps its own paths, data and models.",
       "Connections live in Canopy's server, not in the page, so reloading the page keeps them.",
       "Pencil edits a device: change it, rename it or delete it. Every change is written to the connections file it came from.",
     ],
@@ -74,13 +75,14 @@ const T = {
     cli: "canopy conn password NAME --store file",
   },
   cluster: {
-    title: "Cluster (operator mode)", group: "Devices",
+    title: "Cluster (network-operator workspace)", group: "Devices",
     body: [
-      "Lists network-operator's Device resources from a Kubernetes cluster. Connecting to one uses what the operator uses: the address, credentials and CA from the Device's Secrets, so you see exactly what the operator talks to.",
-      "⚙ chooses the kubeconfig, context, and SSH jump hosts for device addresses that are only reachable from the cluster network.",
+      "The network-operator workspace lists network-operator's Device resources from a Kubernetes cluster. Select one to see the resources that configure it (Resources tab); that needs only the cluster.",
+      "Verify and Browse in Devices connect to the Device the way the operator does: the address, credentials and CA from the Device's Secrets, so you see exactly what the operator talks to. Browse in Devices opens that connection in the Devices workspace (schema, data, snapshots).",
+      "⚙ chooses the kubeconfig, context, and SSH jump hosts for device addresses that are only reachable from the cluster network. Canopy keeps them in its config folder (operator.json).",
     ],
     related: ["operator", "fixtures", "jump"],
-    go: { label: "Open the Operator tab", target: "tab:Operator" },
+    go: { label: "Open network-operator", target: "tab:Resources" },
     cli: "canopy operator devices",
   },
   models: {
@@ -213,7 +215,7 @@ const T = {
   operator: {
     title: "Operator", group: "Compare and test",
     body: [
-      "For a device from the cluster: the network-operator resources (Banner, Interface, …) that point at this Device, with their Ready status.",
+      "The Resources tab of the network-operator workspace: the resources (Banner, Interface, …) that point at the Device selected in the cluster list, with their Ready status.",
       [
         "Pause stops the operator from changing the device or a resource, so you can test by hand; Resume hands it back.",
         "Verify checks that what the resource asks for is really on the device.",
@@ -221,7 +223,7 @@ const T = {
       ],
     ],
     related: ["verify", "cluster", "fixtures"],
-    go: { label: "Open Operator", target: "tab:Operator" },
+    go: { label: "Open Resources", target: "tab:Resources" },
   },
   verify: {
     title: "Verify", group: "Compare and test",

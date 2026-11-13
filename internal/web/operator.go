@@ -12,14 +12,28 @@ import (
 	"github.com/UniverseDevel/Canopy/internal/k8s"
 )
 
-// opReq is the common part of operator requests. Empty fields take the
-// server's defaults (canopy ui --kubeconfig, --operator-jump, ...).
+// opReq is the common part of operator requests. Empty fields take the saved
+// cluster settings (operator.json), then the server's defaults (canopy ui
+// --kubeconfig, --operator-jump, ...).
 type opReq struct {
 	Options   app.OperatorOptions `json:"options"`
 	Namespace string              `json:"namespace"`
 }
 
 func (s *Server) opts(o app.OperatorOptions) app.OperatorOptions {
+	st := readOpSettings()
+	if o.Kubeconfig == "" {
+		o.Kubeconfig = st.Kubeconfig
+	}
+	if o.Context == "" {
+		o.Context = st.Context
+	}
+	if len(o.Jumps) == 0 {
+		o.Jumps = st.Jumps
+	}
+	if len(o.IdentityFiles) == 0 {
+		o.IdentityFiles = st.IdentityFiles
+	}
 	d := s.OpDefaults
 	if o.Kubeconfig == "" {
 		o.Kubeconfig = d.Kubeconfig
@@ -45,7 +59,7 @@ func (s *Server) opts(o app.OperatorOptions) app.OperatorOptions {
 func (s *Server) opInfo(w http.ResponseWriter, r *http.Request) {
 	o := s.opts(app.OperatorOptions{Options: k8s.Options{Kubeconfig: r.URL.Query().Get("kubeconfig")}})
 	ctxs, cur, err := k8s.Contexts(o.Options)
-	resp := map[string]any{"defaults": s.OpDefaults, "contexts": ctxs, "current": cur}
+	resp := map[string]any{"defaults": s.OpDefaults, "settings": readOpSettings(), "contexts": ctxs, "current": cur}
 	if err != nil {
 		resp["error"] = err.Error()
 	}

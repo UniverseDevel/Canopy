@@ -1,5 +1,6 @@
-// Operator tab: the network-operator resources attached to the active Device,
-// with QA verification and pause/resume.
+// Resources tab (network-operator workspace): the resources that configure the
+// cluster Device selected in the sidebar, with pause/resume and QA verification.
+// Listing needs only the cluster; Verify connects to the Device when needed.
 
 import { K8sResource, opApi, OpOptions, Session, Verification } from "./api";
 import { append, clear, copyText, field, h, toast } from "./dom";
@@ -7,8 +8,13 @@ import { errText } from "./config";
 import { help } from "./help";
 import { stringify } from "./json";
 
+export interface ClusterDevice { namespace: string; name: string; provider: string; ready: string; paused: boolean; connected: boolean }
+
 export interface OpContext {
-  session(): Session | null;
+  device(): ClusterDevice | null; // selected in the cluster list
+  session(): Promise<Session | null>; // its connection, connecting if needed
+  browse(): Promise<void>; // open its connection in the Devices workspace
+  disconnect(): Promise<void>;
   options(): OpOptions;
   toFixture?(r: K8sResource): void;
 }
@@ -27,14 +33,17 @@ export function operatorTab(ctx: OpContext) {
   const delKind = h("input", { placeholder: "kind, e.g. banner" });
   const delName = h("input", { placeholder: "name" });
 
-  const dev = () => ctx.session()?.device;
+  const dev = () => ctx.device();
 
   const verify = async (kind: string, name: string, deleted = false) => {
-    const s = ctx.session(), d = dev();
-    if (!s || !d) return;
+    const d = dev();
+    if (!d) return;
     clear(result);
-    result.append(h("p", { class: "muted small" }, `Verifying ${kind} ${name}…`));
+    result.append(h("p", { class: "muted small" }, d.connected ? `Verifying ${kind} ${name}…` : `Connecting to ${d.namespace}/${d.name}, then verifying ${kind} ${name}…`));
     try {
+      const s = await ctx.session();
+      if (!s) { clear(result); result.append(h("p", { class: "err" }, "Not connected to the Device: see the Console.")); return; }
+      refreshHead();
       showVerification(await opApi.verify(ctx.options(), s.id, kind, d.namespace, name, deleted));
     } catch (e) { clear(result); result.append(h("p", { class: "err" }, errText(e))); }
   };
@@ -76,20 +85,29 @@ export function operatorTab(ctx: OpContext) {
       ctx.toFixture ? h("button", { class: "small", title: "Build a test fixture for this resource (Fixtures tab)", onclick: () => ctx.toFixture!(r) }, "Fixture") : null,
       h("button", { class: "small icon", title: "Show spec", onclick: () => { clear(result); result.append(h("h4", {}, `${r.kind} ${r.name} spec`), h("pre", { class: "code" }, stringify(r.spec ?? {}))); } }, "{}")));
 
-  const refresh = async () => {
-    clear(head); clear(list);
-    const s = ctx.session(), d = dev();
-    if (!s || !d) {
-      head.append(h("p", { class: "muted" }, "Connect a device from the Cluster list (left) to see the network-operator resources that configure it."));
-      return;
-    }
+  const refreshHead = () => {
+    clear(head);
+    const d = dev();
+    if (!d) return;
     append(head,
       h("div", { class: "row between" },
-        h("div", {}, h("strong", {}, `${d.namespace}/${d.name}`), h("span", { class: "muted small" }, ` · ${d.provider}`)),
+        h("div", {}, h("strong", {}, `${d.namespace}/${d.name}`), h("span", { class: "muted small" }, ` · ${d.provider} · ${d.connected ? "connected" : "not connected"}`)),
         h("div", { class: "row" },
           h("button", { class: "small", title: "Pause the Device (pauses all its resources)", onclick: () => pause("device", d.name, true) }, "Pause device"),
           h("button", { class: "small", onclick: () => pause("device", d.name, false) }, "Resume device"),
-          h("button", { class: "small", onclick: refresh }, "Refresh"))));
+          h("button", { class: "small", onclick: refresh }, "Refresh"),
+          h("button", { class: "small", title: "Open this Device's connection in the Devices workspace: schema, data, snapshots (connects if needed)", onclick: () => ctx.browse() }, "Browse in Devices"),
+          d.connected ? h("button", { class: "small", onclick: async () => { await ctx.disconnect(); refreshHead(); } }, "Disconnect") : null)));
+  };
+
+  const refresh = async () => {
+    clear(head); clear(list);
+    const d = dev();
+    if (!d) {
+      head.append(h("p", { class: "muted" }, "Select a Device in the cluster list (left) to see the network-operator resources that configure it."));
+      return;
+    }
+    refreshHead();
     list.append(h("p", { class: "muted small" }, "Loading resources…"));
     try {
       const rs = await opApi.resources(ctx.options(), d.namespace, d.name);
@@ -102,7 +120,7 @@ export function operatorTab(ctx: OpContext) {
   };
 
   append(host,
-    h("p", { class: "muted small" }, "The network-operator resources of this Device. Pause, verify on the device, or start a test fixture. ", help("operator")),
+    h("p", { class: "muted small" }, "The network-operator resources of the selected Device. Pause, verify on the device (connects to it), or start a test fixture. ", help("operator")),
     head, list,
     h("details", { class: "op-deleted" }, h("summary", { class: "muted small" }, "Verify a deleted resource"),
       h("div", { class: "row" }, field("Kind", delKind), field("Name", delName),

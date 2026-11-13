@@ -1,14 +1,15 @@
 // Fixtures tab: build network-operator test fixtures (.txtar) from snapshots,
 // and run fixtures against the operator in the cluster with a shadow target.
 
-import { api, FixtureRun, fixturesApi, K8sResource, OpOptions, RepoInfo, Session, snapApi } from "./api";
+import { api, FixtureRun, fixturesApi, K8sResource, OpOptions, RepoInfo, snapApi } from "./api";
 import { append, clear, copyText, field, h, toast } from "./dom";
 import { errText } from "./config";
 import { help, withHelp } from "./help";
 import { stringify } from "./json";
 
 export interface FixtureContext {
-  session(): Session | null;
+  provider(): string; // of the cluster Device selected in the sidebar, if any
+  toSnapshots(): void; // open the Snapshots tab (Devices workspace)
   options(): OpOptions;
   // opens the system's folder dialog; "" when cancelled
   pickFolder(title: string, start?: string): Promise<string>;
@@ -62,7 +63,7 @@ export function fixturesTab(ctx: FixtureContext) {
       const r = await fixturesApi.list(ctx.options());
       clear(provider);
       provider.append(...r.providers.map((p) => h("option", { value: p }, p)));
-      const want = ctx.session()?.device?.provider || store.get("provider");
+      const want = ctx.provider() || store.get("provider");
       if (want && r.providers.includes(want)) provider.value = want;
       await showRepo();
       await loadFixtures();
@@ -197,7 +198,8 @@ export function fixturesTab(ctx: FixtureContext) {
       viewOut, runOut),
     h("section", { class: "fx-section" },
       h("h3", {}, "Build a fixture from snapshots", help("fixtureBuild")),
-      h("p", { class: "muted small" }, "Snapshots before, after applying the resource, and after deleting it, plus the resource's YAML."),
+      h("p", { class: "muted small" }, "Snapshots before, after applying the resource, and after deleting it, plus the resource's YAML. Snapshots are taken in the Devices workspace: ",
+        h("button", { class: "link small", onclick: () => ctx.toSnapshots() }, "open Snapshots"), "."),
       h("div", { class: "form-grid" }, field("Title", title), field("state/preload", pre), field("state/expect", exp), field("state/delete", del)),
       field("Resource YAML", cr),
       h("div", { class: "row" }, h("button", { onclick: loadSnaps }, "Reload snapshots"), h("button", { class: "primary", onclick: build }, "Build")),

@@ -51,17 +51,28 @@ function errText(e: unknown): string {
 const deviceList = h("div", { class: "devices" });
 const clusterList = h("div", { class: "devices cluster" });
 const clusterInfo = h("div", { class: "muted small cluster-info" }, "not loaded");
-// Full-height device column on the far left, like vertical tabs.
-const devicePanel = h("aside", { class: "device-panel" },
-  h("div", { class: "brand-row" }, h("div", { class: "brand" }, "Canopy"), h("div", { class: "muted small", id: "build" }),
-    h("button", { class: "small icon help-index-btn", title: "Help: all topics", onclick: () => openHelpIndex() }, "?")),
+
+// Two workspaces: Devices (plain gNMI: your devices, schema, data, snapshots)
+// and network-operator (a cluster's Devices and resources, verify, fixtures).
+// They meet in two places only: Browse in Devices opens a cluster Device's
+// connection in the Devices workspace, and fixtures are built from snapshots.
+type Workspace = "devices" | "operator";
+let workspace: Workspace = store.get("workspace") === "operator" ? "operator" : "devices";
+const wsSwitch = h("div", { class: "seg ws-switch" });
+const devSection = h("div", { class: "ws-section" },
   h("button", { class: "primary connect-new", onclick: () => openDeviceDialog() }, "+ Connect device"),
   h("div", { class: "muted small section-label" }, "Devices", help("devices")),
-  deviceList,
+  deviceList);
+const clusterSection = h("div", { class: "ws-section" },
   h("div", { class: "row between cluster-head" }, h("div", { class: "muted small section-label" }, "Cluster", help("cluster")),
     h("div", { class: "row" }, h("button", { class: "small icon", title: "Reload Devices", onclick: () => loadCluster() }, "↻"),
       h("button", { class: "small icon", title: "Cluster settings", onclick: () => clusterSettings() }, "⚙"))),
   clusterInfo, clusterList);
+// Full-height column on the far left, like vertical tabs.
+const devicePanel = h("aside", { class: "device-panel" },
+  h("div", { class: "brand-row" }, h("div", { class: "brand" }, "Canopy"), h("div", { class: "muted small", id: "build" }),
+    h("button", { class: "small icon help-index-btn", title: "Help: all topics", onclick: () => openHelpIndex() }, "?")),
+  wsSwitch, devSection, clusterSection);
 const activeLabel = h("div", { class: "muted small active-label" }, "No device connected");
 let modelSources: ModelSource[] = [];
 const modelSrcSel = h("select", { title: "Model source" }, h("option", { value: "" }, "Model source…"));
@@ -135,12 +146,25 @@ const capsHost = h("div", { class: "caps" }, h("p", { class: "muted" }, "Connect
 const footer = h("footer", {});
 const consoleUI = auditConsole({ shell });
 
-const tabs = ["Data", "Snapshots", "Operator", "Fixtures"] as const;
-const fxTab = fixturesTab({ session: () => S.session, options: () => opOptions(), pickFolder: (t, s) => pickFolder(t, s) });
-const opTab = operatorTab({ session: () => S.session, options: () => opOptions(), toFixture: (r) => { showTab("Fixtures"); fxTab.useResource(r); } });
+const tabs = ["Data", "Snapshots"] as const; // Devices workspace, right pane
+const opTabs = ["Resources", "Fixtures"] as const; // network-operator workspace
+const fxTab = fixturesTab({
+  provider: () => selectedCluster()?.k8s?.provider ?? "",
+  options: () => opOptions(), pickFolder: (t, s) => pickFolder(t, s),
+  toSnapshots: () => showTab("Snapshots"),
+});
+const opTab = operatorTab({
+  device: () => { const d = selectedCluster(); return d?.k8s ? { ...d.k8s, connected: !!d.session } : null; },
+  session: async () => { const d = selectedCluster(); if (d && !d.session) await connectDevice(d, false); return d?.session ?? null; },
+  browse: async () => { const d = selectedCluster(); if (!d) return; if (!d.session) await connectDevice(d, false); if (d.session) { setWorkspace("devices"); await selectDevice(d); } },
+  disconnect: async () => { const d = selectedCluster(); if (d) await disconnectDevice(d); },
+  options: () => opOptions(),
+  toFixture: (r) => { showTab("Fixtures"); fxTab.useResource(r); },
+});
 const snaps = snapshotsTab({ session: () => S.session, paths: () => markedPaths(), type: () => typeSel.value });
-type Tab = typeof tabs[number];
+type Tab = typeof tabs[number] | typeof opTabs[number];
 const tabBar = h("div", { class: "tabs" });
+const opTabBar = h("div", { class: "tabs" });
 const tabBodies: Record<Tab, HTMLElement> = {
   Data: h("div", { class: "tab-body data-tab" },
     h("div", { class: "data-top" },
@@ -159,21 +183,38 @@ const tabBodies: Record<Tab, HTMLElement> = {
       dataHost),
     cmdBox),
   Snapshots: h("div", { class: "tab-body" }, snaps.el),
-  Operator: h("div", { class: "tab-body" }, opTab.el),
+  Resources: h("div", { class: "tab-body" }, opTab.el),
   Fixtures: h("div", { class: "tab-body" }, fxTab.el),
 };
 let activeTab: Tab = "Data";
+let activeOpTab: Tab = "Resources";
 
+// showTab shows a tab, switching to its workspace.
 function showTab(t: Tab) {
-  activeTab = t;
-  clear(tabBar);
-  for (const x of tabs) {
-    tabBar.append(h("button", { class: x === t ? "tab active" : "tab", onclick: () => showTab(x) }, x));
-  }
-  for (const x of tabs) tabBodies[x].hidden = x !== t;
+  const op = (opTabs as readonly string[]).includes(t);
+  if (op) activeOpTab = t; else activeTab = t;
+  if (workspace !== (op ? "operator" : "devices")) { setWorkspace(op ? "operator" : "devices"); return; }
+  const [list, bar] = op ? [opTabs, opTabBar] : [tabs, tabBar];
+  clear(bar);
+  for (const x of list) bar.append(h("button", { class: x === t ? "tab active" : "tab", onclick: () => showTab(x) }, x));
+  for (const x of list) tabBodies[x].hidden = x !== t;
   if (t === "Snapshots") snaps.refresh();
-  if (t === "Operator") opTab.refresh();
+  if (t === "Resources") opTab.refresh();
   if (t === "Fixtures") fxTab.refresh();
+}
+
+function setWorkspace(w: Workspace) {
+  workspace = w;
+  store.set("workspace", w);
+  clear(wsSwitch);
+  for (const [x, label] of [["devices", "Devices"], ["operator", "network-operator"]] as const) {
+    wsSwitch.append(h("button", { class: x === w ? "active" : "", title: x === "devices" ? "Your devices: schema, data, snapshots" : "A cluster's network-operator Devices: resources, verify, fixtures", onclick: () => setWorkspace(x) }, label));
+  }
+  devSection.hidden = mainEl.hidden = w !== "devices";
+  clusterSection.hidden = opMain.hidden = w !== "operator";
+  activeLabel.hidden = w !== "devices";
+  opLabel.hidden = w !== "operator";
+  showTab(w === "operator" ? activeOpTab : activeTab);
 }
 
 // Left pane: the schema tree, or the device's capabilities (device-global).
@@ -217,6 +258,8 @@ const rightPane = h("section", { class: "pane right" }, tabBar, ...tabs.map((t) 
 const splitL = h("div", { class: "split", title: "Drag to resize" });
 const splitR = h("div", { class: "split", title: "Drag to resize" });
 const mainEl = h("main", {}, leftPane, splitL, centerPane, splitR, rightPane);
+const opMain = h("section", { class: "op-main" }, opTabBar, ...opTabs.map((t) => tabBodies[t]));
+const opLabel = h("div", { class: "muted small active-label" }, "network-operator");
 
 function setupSplitters() {
   const apply = () => {
@@ -252,12 +295,12 @@ function mount() {
   append(app,
     devicePanel,
     h("div", { class: "workspace" },
-      h("header", {}, activeLabel),
-      mainEl,
+      h("header", {}, activeLabel, opLabel),
+      mainEl, opMain,
       consoleUI.el,
       footer));
   setupSplitters();
-  showTab("Data");
+  setWorkspace(workspace);
   showLeftTab("Schema");
   setHelpNav((t) => {
     if (t === "console") { if (consoleUI.el.hidden) consoleUI.btn.click(); return; }
@@ -278,9 +321,8 @@ function mount() {
   api.info().then((i) => ($("#build").textContent = `${i.build.version} ${i.build.commit.slice(0, 8)}`)).catch(() => {});
   api.schema().then((s) => { if (s) schemaLoaded(s); }).catch(() => {});
   initModels();
-  opApi.info().then((i) => { opDefaults = i.defaults ?? {}; }).catch(() => {});
   // Sessions live in the server: after a page reload, pick them up again.
-  Promise.allSettled([loadDevices(), loadCluster()]).then(() => restoreSessions());
+  Promise.allSettled([loadDevices(), loadOpSettings().then(() => loadCluster())]).then(() => restoreSessions());
   renderFooter();
   updateCmd();
 }
@@ -344,11 +386,13 @@ async function loadDevices() {
 function renderDevices() {
   clear(deviceList);
   clear(clusterList);
-  const local = devices.filter((d) => !d.k8s);
+  // the Devices list: your devices, and cluster Devices only while connected
+  const local = devices.filter((d) => !d.k8s || d.session);
   if (!local.length) {
     deviceList.append(h("p", { class: "muted small pad" }, "No devices yet. Use + Connect device."));
   }
-  for (const d of devices) {
+  for (const d of devices.filter((x) => x.k8s)) clusterList.append(clusterRow(d));
+  for (const d of local) {
     const on = d.state === "on";
     // Compact icon button with a fixed size, so nothing moves when it changes.
     const btn = h("button", {
@@ -367,8 +411,7 @@ function renderDevices() {
       h("div", { class: "dev-main" },
         h("div", { class: "dev-name" }, d.name,
           !d.preset && !d.k8s ? h("span", { class: "tag" }, "not saved") : null,
-          d.k8s ? h("span", { class: "tag " + (d.k8s.ready === "True" ? "tag-ok" : "tag-warn"), title: "Ready condition of the Device" }, d.k8s.ready === "True" ? "ready" : "not ready") : null,
-          d.k8s?.paused ? h("span", { class: "tag tag-warn" }, "paused") : null),
+          d.k8s ? h("span", { class: "tag", title: "A network-operator Device, connected from the network-operator workspace; it leaves this list when disconnected" }, "cluster") : null),
         h("div", { class: "muted small dev-sub" }, sub),
         d.state === "err" && d.error ? h("div", { class: "err small dev-sub dev-err", title: d.error + "\n\nClick for the full error in the Console" },
           h("button", { class: "link small", onclick: (ev: Event) => { ev.stopPropagation(); consoleUI.reveal(); } }, "Failed: see Console"), " ", d.error) : null),
@@ -376,15 +419,60 @@ function renderDevices() {
     row.title = [d.description, d.preset?.lastSeen ? `last connected ${new Date(d.preset.lastSeen.time).toLocaleString()}` : ""].filter(Boolean).join("\n");
     row.addEventListener("click", () => selectDevice(d));
     row.addEventListener("dblclick", () => { if (d.state === "off" || d.state === "err") connectDevice(d); });
-    (d.k8s ? clusterList : deviceList).append(row);
+    deviceList.append(row);
   }
+}
+
+// clusterRow is a network-operator Device in the network-operator workspace:
+// selecting it shows its resources; no connection is needed for that.
+function clusterRow(d: Device) {
+  const k = d.k8s!;
+  const row = h("div", { class: "device" + (d.key === selectedClusterKey ? " sel" : "") + (d.session ? " on" : "") },
+    h("span", { class: "dot " + d.state, title: { off: "not connected", busy: "connecting", on: "connected (also in the Devices workspace)", err: "error" }[d.state] }),
+    h("div", { class: "dev-main" },
+      h("div", { class: "dev-name" }, d.name,
+        h("span", { class: "tag " + (k.ready === "True" ? "tag-ok" : "tag-warn"), title: "Ready condition of the Device" }, k.ready === "True" ? "ready" : "not ready"),
+        k.paused ? h("span", { class: "tag tag-warn" }, "paused") : null),
+      h("div", { class: "muted small dev-sub" }, `${k.provider} · ${d.target.address}`),
+      d.state === "err" && d.error ? h("div", { class: "err small dev-sub dev-err", title: d.error }, d.error) : null));
+  row.title = d.description ?? "";
+  row.addEventListener("click", () => selectCluster(d));
+  return row;
+}
+
+let selectedClusterKey = store.get("cluster.selected");
+const selectedCluster = () => devices.find((x) => x.key === selectedClusterKey && x.k8s);
+
+function selectCluster(d: Device) {
+  selectedClusterKey = d.key;
+  store.set("cluster.selected", d.key);
+  renderDevices();
+  if (activeOpTab === "Resources") opTab.refresh(); else fxTab.refresh();
 }
 
 // ---------- cluster (operator mode) ----------
 
 let opDefaults: OpOptions = {};
+// The cluster settings live in Canopy's config folder (operator.json); the
+// server applies them, so requests don't need to carry them.
+let opSettings: OpOptions = {};
 
-const selectedDevice = () => devices.find((x) => x.key === selectedKey);
+async function loadOpSettings() {
+  try {
+    const i = await opApi.info();
+    opDefaults = i.defaults ?? {};
+    opSettings = i.settings ?? {};
+    // once: move settings an older version kept in this browser
+    const kc = store.get("op.kubeconfig"), cx = store.get("op.context"), j = store.get("op.jumps"), id = store.get("op.identity");
+    if ((kc || cx || j || id) && !opSettings.kubeconfig && !opSettings.context && !opSettings.jumps?.length && !opSettings.identityFiles?.length) {
+      opSettings = await opApi.saveSettings({
+        kubeconfig: kc || undefined, context: cx || undefined,
+        jumps: j ? j.split(",").map((s) => s.trim()).filter(Boolean) : undefined, identityFiles: id ? [id] : undefined,
+      });
+    }
+    for (const k of ["op.kubeconfig", "op.context", "op.jumps", "op.identity"]) store.set(k, "");
+  } catch { /* shown by loadCluster */ }
+}
 
 // pickFolder opens the system's folder dialog (on this computer) and returns
 // the folder, or "" when cancelled.
@@ -395,14 +483,9 @@ async function pickFolder(title: string, start?: string): Promise<string> {
   } catch (e) { toast(errText(e), "err"); return ""; }
 }
 
+// opOptions: per-request overrides of the saved cluster settings (none today).
 function opOptions(): OpOptions {
-  const o: OpOptions = {};
-  const kc = store.get("op.kubeconfig"), cx = store.get("op.context"), j = store.get("op.jumps"), id = store.get("op.identity");
-  if (kc) o.kubeconfig = kc;
-  if (cx) o.context = cx;
-  if (j) o.jumps = j.split(",").map((s) => s.trim()).filter(Boolean);
-  if (id) o.identityFiles = [id];
-  return o;
+  return {};
 }
 
 async function loadCluster() {
@@ -417,7 +500,7 @@ async function loadCluster() {
       const key = `k:${x.namespace}/${x.name}`;
       const d = old.get(key) ?? { key, name: "", target: { address: "" }, state: "off" as const };
       Object.assign(d, {
-        name: `${x.namespace}/${x.name}`, target: { address: x.address, jumps: opOptions().jumps ?? opDefaults.jumps },
+        name: `${x.namespace}/${x.name}`, target: { address: x.address, jumps: opSettings.jumps?.length ? opSettings.jumps : opDefaults.jumps },
         description: `${x.provider}\nphase ${x.phase ?? "?"}`,
         k8s: { namespace: x.namespace, name: x.name, ready: x.ready, paused: x.paused, provider: x.provider },
       });
@@ -431,28 +514,32 @@ async function loadCluster() {
     clusterInfo.textContent = /kubeconfig/i.test(full) ? "No cluster: no kubeconfig found. ⚙ to choose one." : full;
   }
   renderDevices();
+  if (workspace === "operator") showTab(activeOpTab);
 }
 
 async function clusterSettings() {
   let info: Awaited<ReturnType<typeof opApi.info>> | null = null;
   try { info = await opApi.info(); } catch { /* shown below */ }
   const d = info?.defaults ?? {};
-  const kc = h("input", { value: store.get("op.kubeconfig"), placeholder: d.kubeconfig || "~/.kube/config" });
+  const st = info?.settings ?? opSettings;
+  const kc = h("input", { value: st.kubeconfig ?? "", placeholder: d.kubeconfig || "~/.kube/config" });
   const cx = h("select", {}, h("option", { value: "" }, `current (${info?.current ?? "?"})`),
     ...(info?.contexts ?? []).map((c) => h("option", { value: c }, c)));
-  cx.value = store.get("op.context");
-  const j = h("input", { value: store.get("op.jumps"), placeholder: (d.jumps ?? []).join(", ") || "user@jump:22 (optional)" });
-  const id = h("input", { value: store.get("op.identity"), placeholder: (d.identityFiles ?? [])[0] || "key file (optional)" });
-  const r = await modal("Cluster (operator mode)", h("div", { class: "form" },
-    h("p", { class: "muted small" }, "Canopy reads network-operator's Devices from this cluster and connects to them as the operator does (address, credentials and CA from the Device's Secrets). Device addresses are often only reachable from the cluster network; give a jump host for that. Empty fields use the defaults Canopy was started with."),
+  cx.value = st.context ?? "";
+  const j = h("input", { value: (st.jumps ?? []).join(", "), placeholder: (d.jumps ?? []).join(", ") || "user@jump:22 (optional)" });
+  const id = h("input", { value: (st.identityFiles ?? [])[0] ?? "", placeholder: (d.identityFiles ?? [])[0] || "key file (optional)" });
+  const r = await modal("Cluster settings", h("div", { class: "form" },
+    h("p", { class: "muted small" }, "Canopy reads network-operator's Devices from this cluster and connects to them as the operator does (address, credentials and CA from the Device's Secrets). Device addresses are often only reachable from the cluster network; give a jump host for that. Empty fields use the defaults Canopy was started with. Kept in Canopy's config folder (operator.json)."),
     h("div", { class: "form-grid" }, field("Kubeconfig", kc), field("Context", cx), field(withHelp("SSH jump hosts to devices", "jump"), j), field("SSH key file", id)),
     info?.error ? h("p", { class: "err small" }, info.error) : null),
     [{ label: "Save and reload", primary: true, value: "ok" }]);
   if (r !== "ok") return;
-  store.set("op.kubeconfig", kc.value.trim());
-  store.set("op.context", cx.value);
-  store.set("op.jumps", j.value.trim());
-  store.set("op.identity", id.value.trim());
+  try {
+    opSettings = await opApi.saveSettings({
+      kubeconfig: kc.value.trim() || undefined, context: cx.value || undefined,
+      jumps: j.value.split(",").map((s) => s.trim()).filter(Boolean), identityFiles: id.value.trim() ? [id.value.trim()] : [],
+    });
+  } catch (e) { toast(errText(e), "err"); return; }
   loadCluster();
 }
 
@@ -487,7 +574,9 @@ function passwordPrompt(title: string, note: string, remember = false): Promise<
   });
 }
 
-async function connectDevice(d: Device) {
+// connectDevice connects d; with show false (from the network-operator
+// workspace) the Devices workspace keeps its active device.
+async function connectDevice(d: Device, show = true) {
   d.state = "busy";
   d.error = "";
   renderDevices();
@@ -506,9 +595,11 @@ async function connectDevice(d: Device) {
             .then((r) => { toast(`Password ${r.message}`); loadDevices(); }).catch((e) => toast(errText(e), "err"));
         }
         S.sessions.push(s);
-        selectedKey = d.key;
-        renderDevices();
-        await activate(s.id);
+        if (show || !S.session) {
+          selectedKey = d.key;
+          renderDevices();
+          await activate(s.id);
+        } else renderDevices();
         if (d.preset) loadDevices(); // refresh "last connected"
         return;
       } catch (e) {

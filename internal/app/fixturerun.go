@@ -421,22 +421,33 @@ func waitPhase(ctx context.Context, cl *k8s.Client, u *unstructured.Unstructured
 	return phase
 }
 
+// finalizerWindow is how long a resource may take to get a finalizer before
+// it counts as config-only. The operator's own test waits 3 s, but there the
+// controllers run in the test process; a real cluster's operator can be busy,
+// restarting (Tilt) or waiting for its leader lease, so Canopy waits longer.
+const finalizerWindow = 15 * time.Second
+
 // waitReady waits like the operator's test: resources without a finalizer
-// (config only) are done; others need Ready (or Configured) True.
+// (config only) are done; others need Ready (or Configured) True. Status
+// conditions count as a sign of a controller too.
 func waitReady(ctx context.Context, cl *k8s.Client, u *unstructured.Unstructured, d time.Duration) (string, bool) {
 	gvk, ns, name := u.GroupVersionKind(), u.GetNamespace(), u.GetName()
+	window := finalizerWindow
+	if d < window {
+		window = d
+	}
 	fin := false
-	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); {
-		if cur, _ := cl.GetObject(ctx, gvk, ns, name); cur != nil && len(cur.GetFinalizers()) > 0 {
+	for end := time.Now().Add(window); time.Now().Before(end); {
+		if cur, _ := cl.GetObject(ctx, gvk, ns, name); cur != nil && (len(cur.GetFinalizers()) > 0 || len(k8s.ConditionsOf(cur)) > 0) {
 			fin = true
 			break
 		}
-		if sleep(ctx, 100*time.Millisecond) != nil {
+		if sleep(ctx, 200*time.Millisecond) != nil {
 			return "cancelled", false
 		}
 	}
 	if !fin {
-		return "created (no finalizer: no controller reconciles it)", true
+		return fmt.Sprintf("created; assumed config-only (no finalizer or status within %s, so no controller seems to reconcile it)", window), true
 	}
 	last := "no conditions yet"
 	for end := time.Now().Add(d); time.Now().Before(end); {

@@ -198,7 +198,8 @@ export interface VerifyLeaf { path: string; expected?: unknown; actual?: unknown
 export interface Verification { resource: K8sResource; device: string; fixture: string; mode: string; verdict: string; reasons: string[]; leaves: VerifyLeaf[]; alternates?: string[]; elapsedMs: number }
 
 export const opApi = {
-  info: () => call<{ defaults: OpOptions; contexts?: string[]; current?: string; error?: string }>("GET", "/api/operator/info"),
+  saveSettings: (s: OpOptions) => call<OpOptions>("PUT", "/api/operator/settings", s),
+  info: () => call<{ defaults: OpOptions; settings?: OpOptions; contexts?: string[]; current?: string; error?: string }>("GET", "/api/operator/info"),
   devices: (options: OpOptions, namespace = "") => call<{ context: string; devices: K8sDevice[] }>("POST", "/api/operator/devices", { options, namespace }),
   connect: (options: OpOptions, namespace: string, name: string, target: Partial<Target>) =>
     call<Session>("POST", "/api/operator/connect", { options, namespace, name, target }),

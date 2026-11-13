@@ -594,9 +594,20 @@ NX-OS native `System/...`). Fixtures must use the same path style as the provide
   - **Virtualized tree** for tens of thousands of nodes.
   - **Code viewer** (CodeMirror 6) for JSON, YAML and YANG source with highlighting.
   - Streaming updates over WebSocket for subscriptions and long reads.
-- **Layout:**
-  - Left: device selector (manual, gNMIc targets file, or Kubernetes), schema tree
-    with search and overlay markers.
+- **Workspaces:** device work and network-operator work are kept apart, because
+  neither depends on the other.
+  - **Devices:** saved devices (the connections file) and ones connected without
+    saving; the layout below.
+  - **network-operator:** the cluster's Device CRs in the sidebar; tabs Resources
+    (the resources referencing the selected Device: pause, verify) and Fixtures (the
+    network-operator checkout, build, run). Listing needs only the cluster; verify
+    connects to the Device on demand. Cluster settings live in `operator.json`
+    in the config folder, the checkout choice in `operator-repo.json`.
+  - The two links between them are explicit: *Browse in Devices* opens a cluster
+    Device's connection in the Devices workspace (tagged "cluster" while
+    connected), and fixtures are built from snapshots taken there.
+- **Layout (Devices workspace):**
+  - Left: device selector, schema tree with search and overlay markers.
   - Center: node details (path, type, description, YANG source, provenance,
     config/state pair).
   - Right: tabs for data (JSON, YAML, flat), instances, config builder, generated
