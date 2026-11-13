@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +36,9 @@ var op opState
 
 // Operator returns a client for the cluster (cached per kubeconfig and context).
 func (s *Service) Operator(o OperatorOptions) (*k8s.Client, error) {
-	key := o.Kubeconfig + "\x00" + o.Context
+	// the kubeconfig files' times are part of the key: a kubeconfig written
+	// again (a new cluster port, refreshed credentials) gets a new client
+	key := o.Kubeconfig + "\x00" + o.Context + "\x00" + kubeconfigStamp(o.Kubeconfig)
 	op.mu.Lock()
 	defer op.mu.Unlock()
 	if op.cl != nil && op.key == key {
@@ -46,6 +50,27 @@ func (s *Service) Operator(o OperatorOptions) (*k8s.Client, error) {
 	}
 	op.cl, op.key = cl, key
 	return cl, nil
+}
+
+// kubeconfigStamp names the kubeconfig files client-go reads (the given
+// one, else $KUBECONFIG's, else ~/.kube/config) with their modification times.
+func kubeconfigStamp(kubeconfig string) string {
+	files := []string{kubeconfig}
+	if kubeconfig == "" {
+		files = filepath.SplitList(os.Getenv("KUBECONFIG"))
+		if len(files) == 0 {
+			if home, err := os.UserHomeDir(); err == nil {
+				files = []string{filepath.Join(home, ".kube", "config")}
+			}
+		}
+	}
+	var b strings.Builder
+	for _, f := range files {
+		if fi, err := os.Stat(f); err == nil {
+			fmt.Fprintf(&b, "%s@%d;", f, fi.ModTime().UnixNano())
+		}
+	}
+	return b.String()
 }
 
 // ConnectDevice connects to a Device the way the operator does: its address,

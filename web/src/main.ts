@@ -219,6 +219,7 @@ function setWorkspace(w: Workspace) {
   activeLabel.hidden = w !== "devices";
   opLabel.hidden = w !== "operator";
   showTab(w === "operator" ? activeOpTab : activeTab);
+  if (w === "operator" && clusterStartDone && !clusterLoaded) loadCluster(); // the start-up load failed: try again
 }
 
 // Left pane: the schema tree, or the device's capabilities (device-global).
@@ -331,7 +332,7 @@ function mount() {
   api.schema().then((s) => { if (s) schemaLoaded(s); }).catch(() => {});
   initModels();
   // Sessions live in the server: after a page reload, pick them up again.
-  Promise.allSettled([loadDevices(), loadOpSettings().then(() => loadCluster())]).then(() => restoreSessions());
+  Promise.allSettled([loadDevices(), loadOpSettings().then(() => loadClusterAtStart())]).then(() => restoreSessions());
   renderFooter();
   updateCmd();
 }
@@ -498,11 +499,44 @@ function opOptions(): OpOptions {
   return {};
 }
 
-async function loadCluster() {
+// clusterLoaded: the last load succeeded. A failed one is tried again when
+// the NetOp workspace is opened.
+let clusterLoaded = false;
+let clusterStartDone = false; // the start-up load (with its retries) is over
+let clusterSeq = 0;
+
+// loadClusterAtStart loads the Devices and, when that fails, tries again a
+// few times: the first request to a cluster often fails or times out (a
+// kubeconfig login plugin fetching a token, a VPN coming up, a slow API
+// server) and the next one works.
+async function loadClusterAtStart() {
+  try { await startLoads(); } finally { clusterStartDone = true; }
+}
+async function startLoads() {
+  const waits = [3, 10, 30];
+  const seq = clusterSeq + 1;
+  for (let i = 0; ; i++) {
+    const err = await loadCluster();
+    if (!err || i >= waits.length || clusterSeq !== seq + i) return; // done, given up, or reloaded by hand
+    if (/no kubeconfig/i.test(err)) return; // nothing to wait for
+    for (let s = waits[i]; s > 0; s--) {
+      clusterInfo.textContent = `${err.split("\n")[0]} · retrying in ${s} s`;
+      await new Promise((r) => setTimeout(r, 1000));
+      if (clusterSeq !== seq + i) return; // loaded meanwhile (↻ or ⚙)
+    }
+  }
+}
+
+// loadCluster reads the cluster's Devices; it returns the error, if any.
+async function loadCluster(): Promise<string> {
+  const seq = ++clusterSeq;
   clusterInfo.textContent = "Loading Devices…";
   clusterInfo.title = "";
+  let err = "";
   try {
     const r = await opApi.devices(opOptions());
+    if (seq !== clusterSeq) return ""; // a newer load is under way
+    clusterLoaded = true;
     clusterContext = r.context;
     clusterInfo.textContent = `${r.context} · ${r.devices.length} Device${r.devices.length === 1 ? "" : "s"}`;
     const old = new Map(devices.filter((d) => d.k8s).map((d) => [d.key, d]));
@@ -520,12 +554,16 @@ async function loadCluster() {
     // keep connected cluster devices that disappeared from the list
     for (const [k, d] of old) if (d.session && !devices.some((x) => x.key === k)) devices.push(d);
   } catch (e) {
+    if (seq !== clusterSeq) return "";
+    clusterLoaded = false;
     const full = errText(e);
+    err = /kubeconfig/i.test(full) && /not|no such|find/i.test(full) ? "No cluster: no kubeconfig found. ⚙ to choose one." : full;
     clusterInfo.title = full;
-    clusterInfo.textContent = /kubeconfig/i.test(full) ? "No cluster: no kubeconfig found. ⚙ to choose one." : full;
+    clusterInfo.textContent = err;
   }
   renderDevices();
   if (workspace === "operator") showTab(activeOpTab);
+  return err;
 }
 
 // the jump hosts cluster Devices are reached through: the settings', else the
