@@ -16,6 +16,17 @@ export function auditConsole(ctx: ConsoleContext) {
   let file = "";
   let unseen = 0;
   const list = h("div", { class: "console-list" });
+  // Newest entries are at the bottom. The list follows them while you are at the
+  // bottom; when you have scrolled up to read, it stays put and offers a jump.
+  let newBelow = 0;
+  const jump = h("button", { class: "small console-jump", hidden: true, title: "Scroll to the newest entries" });
+  const atBottom = () => list.scrollHeight - list.scrollTop - list.clientHeight < 24;
+  const syncJump = () => {
+    jump.hidden = newBelow === 0;
+    jump.textContent = `${newBelow} new ↓`;
+  };
+  jump.addEventListener("click", () => { list.scrollTop = list.scrollHeight; newBelow = 0; syncJump(); });
+  list.addEventListener("scroll", () => { if (newBelow && atBottom()) { newBelow = 0; syncJump(); } });
   const count = h("span", { class: "console-count" });
   const filter = h("input", { type: "search", placeholder: "Filter", class: "console-filter" });
   // Open by default; open/closed and height are remembered per browser.
@@ -31,7 +42,7 @@ export function auditConsole(ctx: ConsoleContext) {
       filter,
       h("button", { class: "small", title: "Copy all commands", onclick: () => copyText(entries.map((e) => cmd(e)).filter(Boolean).join("\n"), "commands") }, "Copy commands"),
       h("button", { class: "small icon", title: "Close", onclick: () => toggle(false) }, "✕")),
-    list);
+    h("div", { class: "console-body" }, list, jump));
   const btn = h("button", { class: "link console-toggle", title: "Show the audit console", onclick: () => toggle() }, "Console ", count);
 
   const cmd = (e: AuditEntry) => e.command?.[ctx.shell()] ?? e.command?.bash ?? "";
@@ -48,7 +59,11 @@ export function auditConsole(ctx: ConsoleContext) {
       !e.ok && e.error ? h("div", { class: "cerr err small" }, e.error) : null);
   };
 
-  const draw = () => {
+  // draw renders the list; follow (default: whether you were at the bottom)
+  // scrolls to the newest entry, added counts entries that arrived.
+  const draw = (follow?: boolean, added = 0) => {
+    const stick = follow ?? (atBottom() || el.hidden);
+    const keep = list.scrollTop;
     const q = filter.value.toLowerCase();
     clear(list);
     const shown = entries.filter((e) => !q || `${e.action} ${e.device} ${e.summary} ${cmd(e)}`.toLowerCase().includes(q));
@@ -60,8 +75,15 @@ export function auditConsole(ctx: ConsoleContext) {
       list.append(r);
     }
     if (file) list.append(h("p", { class: "muted small pad" }, `Also written to ${file}`));
-    list.scrollTop = list.scrollHeight;
-    if (flashEl) { flashEl.scrollIntoView({ block: "nearest" }); flashSeq = 0; }
+    if (stick) {
+      list.scrollTop = list.scrollHeight;
+      newBelow = 0;
+    } else {
+      list.scrollTop = keep;
+      newBelow += added;
+    }
+    if (flashEl) { flashEl.scrollIntoView({ block: "nearest" }); flashSeq = 0; if (atBottom()) newBelow = 0; }
+    syncJump();
     count.textContent = unseen ? `(${entries.length}, ${unseen} new)` : `(${entries.length})`;
   };
 
@@ -69,7 +91,7 @@ export function auditConsole(ctx: ConsoleContext) {
     el.hidden = !open;
     setPref("open", open ? "1" : "0");
     if (open) unseen = 0;
-    draw();
+    draw(true);
   };
 
   const h0 = Number(pref("height"));
@@ -126,12 +148,12 @@ export function auditConsole(ctx: ConsoleContext) {
       first = false;
       if (entries.length > 1000) entries.splice(0, entries.length - 1000);
       if (failed) flashFailure(failed);
-      else draw();
+      else if (r.entries.length) draw(undefined, r.entries.length);
     } catch { /* server gone */ } finally { busy = false; }
   };
-  filter.addEventListener("input", draw);
+  filter.addEventListener("input", () => draw(true));
   // Requests finish before their audit entry is visible; fetch shortly after.
   window.addEventListener("canopy:audit", () => setTimeout(refresh, 150));
   refresh();
-  return { el, btn, refresh, redraw: draw, reveal };
+  return { el, btn, refresh, redraw: () => draw(), reveal };
 }

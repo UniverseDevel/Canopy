@@ -478,3 +478,20 @@ input.secret { -webkit-text-security: disc; font-family: var(--mono); letter-spa
 
 .src-link { margin-left: 10px; font-size: 12px; color: var(--accent); text-decoration: none; }
 .src-link:hover { text-decoration: underline; }
+
+/* console: the list follows new entries only while you're at the bottom */
+.console-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.console-body .console-list { flex: 1; }
+.console-jump { position: absolute; right: 16px; bottom: 10px; z-index: 2; border-radius: 12px; padding: 2px 10px;
+  background: var(--accent); color: var(--accent-fg); border-color: var(--accent); box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
+.console-jump[hidden] { display: none; }
+
+/* short windows (console open): the data tab scrolls instead of overlapping */
+.data-tab { overflow: auto; }
+.data-top { min-height: 160px; }
+.data-host { min-height: 90px; }
+.cmd-preview { flex: none; }
+.data-top { flex: 1 0 auto; min-height: 0; }
+/* the data fills what's left but never shrinks below a usable size; below that the tab scrolls */
+.data-top { flex: 1 1 0; min-height: min-content; }
+.data-host { flex: 1 1 0; min-height: 120px; }
