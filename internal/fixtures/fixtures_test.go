@@ -124,3 +124,29 @@ func TestFindRepoExplicit(t *testing.T) {
 		t.Errorf("FindRepo = %q, %v", got, err)
 	}
 }
+
+func TestRepoChoice(t *testing.T) {
+	t.Setenv("CANOPY_CONFIG_DIR", t.TempDir())
+	fork, public := t.TempDir(), t.TempDir()
+	for _, d := range []string{fork, public} {
+		os.MkdirAll(filepath.Join(d, "test", "gnmi", "testdata"), 0o755)
+	}
+	if _, err := Choose(t.TempDir()); err == nil {
+		t.Error("a folder that isn't a checkout should be refused")
+	}
+	Choose(public)
+	c, _ := Choose(fork)
+	if c.Current != fork || len(c.Recent) != 2 || c.Recent[0] != fork {
+		t.Errorf("choice %+v", c)
+	}
+	if got, err := FindRepo(""); err != nil || got != fork {
+		t.Errorf("FindRepo = %q, %v", got, err)
+	}
+	if got, _ := FindRepo(public); got != public {
+		t.Errorf("an explicit folder should win: %q", got)
+	}
+	c, _ = Forget(fork)
+	if c.Current != "" || len(c.Recent) != 1 {
+		t.Errorf("after forget %+v", c)
+	}
+}

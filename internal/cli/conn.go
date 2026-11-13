@@ -99,7 +99,7 @@ func newConnShowCmd(g *globals) *cobra.Command {
 
 func newConnSaveCmd(g *globals) *cobra.Command {
 	var f targetFlags
-	var desc, enc, pwEnv, modelSet, opRepo string
+	var desc, enc, pwEnv, modelSet string
 	var remember bool
 	var pwStore string
 	var tags, yangDirs, paths []string
@@ -132,7 +132,7 @@ flags given now replace its values, others are kept.`,
 			if base != nil {
 				c.Description, c.Tags, c.Encoding, c.PasswordEnv = base.Description, base.Tags, base.Encoding, base.PasswordEnv
 				c.YangDirs, c.Paths = base.YangDirs, base.Paths
-				c.Models, c.OperatorRepo = base.Models, base.OperatorRepo
+				c.Models = base.Models
 			}
 			fl := cmd.Flags()
 			if fl.Changed("description") {
@@ -155,9 +155,6 @@ flags given now replace its values, others are kept.`,
 			}
 			if fl.Changed("path") {
 				c.Paths = paths
-			}
-			if fl.Changed("operator-repo") {
-				c.OperatorRepo = opRepo
 			}
 			if err := store.Put(c); err != nil {
 				return err
@@ -191,7 +188,6 @@ flags given now replace its values, others are kept.`,
 	cmd.Flags().StringVar(&pwEnv, "password-env", "", "environment variable holding this device's password (default GNMI_PASSWORD)")
 	cmd.Flags().StringSliceVarP(&yangDirs, "yang", "y", nil, "YANG folders for this device")
 	cmd.Flags().StringVar(&modelSet, "models", "", "model set from GitHub, SOURCE@VERSION (default: detect from the device)")
-	cmd.Flags().StringVar(&opRepo, "operator-repo", "", "network-operator checkout (a fork, for example) whose fixtures go with this device")
 	cmd.Flags().BoolVar(&remember, "remember-password", false, "store the password (GNMI_PASSWORD or prompt), see --password-store")
 	cmd.Flags().StringVar(&pwStore, "password-store", "keychain", "where --remember-password keeps it: keychain, or file (encrypted, next to the connections file, git-ignored)")
 	cmd.Flags().StringSliceVarP(&paths, "path", "p", nil, "favourite paths (used by 'get' when no --path is given)")

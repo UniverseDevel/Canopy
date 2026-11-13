@@ -136,22 +136,7 @@ const footer = h("footer", {});
 const consoleUI = auditConsole({ shell });
 
 const tabs = ["Data", "Snapshots", "Operator", "Fixtures"] as const;
-const fxTab = fixturesTab({
-  session: () => S.session, options: () => opOptions(),
-  repoDevice: () => { const d = selectedDevice(); return d?.preset?.operatorRepo ? d.name : ""; },
-  changeRepo: async () => {
-    const d = selectedDevice();
-    if (!d?.preset) { toast("Select a saved device first: the checkout is kept with the device", "err"); return false; }
-    const path = await pickFolder("network-operator checkout for " + d.name, d.preset.operatorRepo);
-    if (!path) return false;
-    try {
-      await api.savePreset({ ...d.preset, operatorRepo: path });
-      await loadDevices();
-      toast(`${d.name} now uses ${path}`);
-      return true;
-    } catch (e) { toast(errText(e), "err"); return false; }
-  },
-});
+const fxTab = fixturesTab({ session: () => S.session, options: () => opOptions(), pickFolder: (t, s) => pickFolder(t, s) });
 const opTab = operatorTab({ session: () => S.session, options: () => opOptions(), toFixture: (r) => { showTab("Fixtures"); fxTab.useResource(r); } });
 const snaps = snapshotsTab({ session: () => S.session, paths: () => markedPaths(), type: () => typeSel.value });
 type Tab = typeof tabs[number];
@@ -412,8 +397,6 @@ async function pickFolder(title: string, start?: string): Promise<string> {
 
 function opOptions(): OpOptions {
   const o: OpOptions = {};
-  const repo = selectedDevice()?.preset?.operatorRepo;
-  if (repo) o.operatorRepo = repo;
   const kc = store.get("op.kubeconfig"), cx = store.get("op.context"), j = store.get("op.jumps"), id = store.get("op.identity");
   if (kc) o.kubeconfig = kc;
   if (cx) o.context = cx;
@@ -474,10 +457,8 @@ async function clusterSettings() {
 }
 
 async function selectDevice(d: Device) {
-  const changed = selectedKey !== d.key;
   selectedKey = d.key;
   renderDevices();
-  if (changed && activeTab === "Fixtures") fxTab.refresh(); // its checkout may differ
   updateCmd();
   if (d.session && S.session?.id !== d.session.id) await activate(d.session.id);
 }
@@ -599,11 +580,6 @@ async function openDeviceDialog(edit?: Device) {
   const identity = h("input", { value: (t?.identityFiles ?? [])[0] ?? "", placeholder: "key file (optional)" });
   const timeout = h("input", { type: "number", min: "1", value: String(t?.timeoutSec || 10) });
   const desc = h("input", { value: v(edit?.description), placeholder: "optional" });
-  const opRepo = h("input", { value: v(p?.operatorRepo), placeholder: "default (../network-operator)" });
-  const opRepoBox = h("div", { class: "row" }, opRepo, h("button", { type: "button", class: "small", onclick: async () => {
-    const path = await pickFolder("network-operator checkout for " + (name.value.trim() || "this device"), opRepo.value.trim() || undefined);
-    if (path) opRepo.value = path;
-  } }, "Browse…"));
   const [mSrc, mVer] = (edit?.models ?? "").split("@");
   const modelSrc = h("select", {}, h("option", { value: "" }, "Detect from the device"),
     ...modelSources.map((s) => h("option", { value: s.id }, s.name)));
@@ -639,8 +615,7 @@ async function openDeviceDialog(edit?: Device) {
       field("CA file", ca), field("TLS server name", serverName), field("Username", username), field("Password", password),
       field(withHelp("SSH jump hosts", "jump"), jumps, "comma-separated chain"), field("SSH key file", identity),
       field(withHelp("YANG models", "models"), modelSrc), field("Model version", modelVer),
-      field("Description", desc), field("Password environment variable", pwEnv, "Used when no password is typed."),
-      field(withHelp("network-operator checkout", "fixtures"), opRepoBox, "For fixtures and Verify, e.g. your fork")),
+      field("Description", desc), field("Password environment variable", pwEnv, "Used when no password is typed.")),
     rememberFields,
     h("p", { class: "muted small" }, p?.source ? `Saved in ${p.source}. Passwords never go into that file.` : "Saved devices go into your connections file. Passwords never go into it."));
   const buttons = [{ label: "Save and connect", primary: true, value: "connect" }, { label: "Save", value: "save" }];
@@ -679,7 +654,7 @@ async function openDeviceDialog(edit?: Device) {
         name: name.value.trim() || tgt.address.replace(/[^A-Za-z0-9 ._/-]/g, "_"), source: p?.source, description: desc.value.trim() || undefined, passwordEnv: pwEnv.value.trim() || undefined,
         address: tgt.address, insecure: tgt.insecure, skipVerify: tgt.skipVerify, caFile: tgt.caFile, serverName: tgt.serverName,
         username: tgt.username, timeoutSec: tgt.timeoutSec, jumps: tgt.jumps, identityFiles: tgt.identityFiles,
-        models, paths: edit?.paths, yangDirs: edit?.yangDirs, tags: p?.tags, operatorRepo: opRepo.value.trim() || undefined,
+        models, paths: edit?.paths, yangDirs: edit?.yangDirs, tags: p?.tags,
       };
       try {
         if (remember.value && !password.value) { toast("Type the password to remember", "err"); continue; }

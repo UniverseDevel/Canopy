@@ -243,7 +243,7 @@ const T = {
         "`state/delete`: what it must be after the resource is deleted.",
       ],
       "If both comparisons match, the operator translates that resource correctly for that vendor.",
-      "Which checkout: each saved device can name its own (Edit device → network-operator checkout, or Change… in the Fixtures tab), for example your fork with work that isn't public yet. Without one, Canopy uses `--operator-repo`, `CANOPY_OPERATOR_REPO` or a `network-operator` folder next to Canopy's.",
+      "Which checkout: choose it at the top of the Fixtures tab (Browse…, or one used before), for example your fork with work that isn't public yet. It applies to fixtures and Verify for every device, and Canopy remembers it. Default: `--operator-repo`, `CANOPY_OPERATOR_REPO` or a `network-operator` folder next to Canopy's.",
     ],
     related: ["fixtureBuild", "fixtureRun", "snapshots"],
     go: { label: "Open Fixtures", target: "tab:Fixtures" },

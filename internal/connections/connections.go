@@ -47,9 +47,6 @@ type Connection struct {
 	// Models is the model set, SOURCE@VERSION (e.g. srlinux@v26.7.1); empty means
 	// detect from the device (unless YangDirs is set).
 	Models string `yaml:"models,omitempty" json:"models,omitempty"`
-	// OperatorRepo is the network-operator checkout (a fork, for example)
-	// whose test fixtures go with this device; empty: Canopy's default.
-	OperatorRepo string `yaml:"operatorRepo,omitempty" json:"operatorRepo,omitempty"`
 
 	// LastSeen is updated after each successful connection.
 	LastSeen *Seen `yaml:"lastSeen,omitempty" json:"lastSeen,omitempty"`
@@ -162,7 +159,6 @@ func fileDir(path string) string {
 
 func mapPaths(c *Connection, f func(string) string) {
 	c.CAFile, c.CertFile, c.KeyFile = f(c.CAFile), f(c.CertFile), f(c.KeyFile)
-	c.OperatorRepo = f(c.OperatorRepo)
 	for j := range c.YangDirs {
 		c.YangDirs[j] = f(c.YangDirs[j])
 	}

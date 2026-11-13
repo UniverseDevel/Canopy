@@ -100,10 +100,10 @@ In the UI:
   remove the namespace. The shadow target runs inside Canopy, or use your own
   (`canopy shadow --tls --http ...`) where the cluster can reach it, for example on
   the kind network gateway.
-  Each saved device can name its own network-operator checkout (for example your
-  fork): **Browse…** in the device dialog or **Change…** in the Fixtures tab, or
-  `canopy conn save NAME --operator-repo DIR`. Without one, Canopy uses
-  `--operator-repo`, `CANOPY_OPERATOR_REPO` or `../network-operator`.
+  The network-operator checkout is one choice at the top of the Fixtures tab
+  (**Browse…**, or one used before, e.g. your fork or the public repository), kept
+  in Canopy's config folder. Default: `--operator-repo`, `CANOPY_OPERATOR_REPO` or
+  `../network-operator`.
 - A saved device can keep its password in the OS keychain (opt-in checkbox).
 
 For scripts and agents, every command takes `--output json` (stable envelope with

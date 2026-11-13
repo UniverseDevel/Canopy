@@ -19,6 +19,42 @@ type fixtureInfo struct {
 	Kinds []string `json:"kinds"`
 }
 
+// fxRepo returns the chosen network-operator checkout, the recent ones and
+// the one in use.
+func (s *Server) fxRepo(w http.ResponseWriter, _ *http.Request) {
+	c := fixtures.Choice()
+	out := map[string]any{"current": c.Current, "recent": c.Recent}
+	if repo, err := fixtures.FindRepo(s.opts(app.OperatorOptions{}).OperatorRepo); err == nil {
+		out["inUse"] = repo
+	} else {
+		out["error"] = err.Error()
+	}
+	writeJSON(w, out)
+}
+
+// fxRepoSet chooses the checkout (path; "" for the default) or forgets one.
+func (s *Server) fxRepoSet(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path   string `json:"path"`
+		Forget string `json:"forget"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	var err error
+	if req.Forget != "" {
+		_, err = fixtures.Forget(req.Forget)
+	} else {
+		_, err = fixtures.Choose(req.Path)
+	}
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	s.fxRepo(w, r)
+}
+
 // fxList lists the providers (provider empty) or a provider's fixtures.
 func (s *Server) fxList(w http.ResponseWriter, r *http.Request) {
 	var req struct {

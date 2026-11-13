@@ -31,7 +31,7 @@ export interface Preset {
   serverName?: string; username?: string; passwordEnv?: string; timeoutSec?: number;
   jumps?: string[]; identityFiles?: string[]; encoding?: string; yangDirs?: string[]; paths?: string[]; models?: string;
   lastSeen?: { time: string; gnmiVersion?: string; encodings?: string[]; models: number };
-  operatorRepo?: string; source?: string; passwordStored?: "keychain" | "file";
+  source?: string; passwordStored?: "keychain" | "file";
 }
 
 export interface TypeInfo {
@@ -106,6 +106,8 @@ export const api = {
   presets: () => call<Preset[]>("GET", "/api/connections"),
   savePreset: (p: Preset, keychain?: { password?: string; rememberPassword?: boolean; passwordStore?: string; forgetPassword?: boolean }) =>
     call<Preset>("PUT", "/api/connections", { ...p, ...(keychain ?? {}) }),
+  operatorRepo: () => call<RepoInfo>("GET", "/api/fixtures/repo"),
+  chooseOperatorRepo: (req: { path?: string; forget?: string }) => call<RepoInfo>("POST", "/api/fixtures/repo", req),
   pickFolder: (title: string, start?: string) => call<{ path: string; cancelled: boolean }>("POST", "/api/pick/folder", { title, start }),
   presetPassword: (req: { name: string; password?: string; store?: string; forget?: boolean }) =>
     call<{ message: string }>("POST", "/api/connections/password", req),
@@ -184,6 +186,9 @@ export const snapApi = {
     call<DiffResult>("POST", "/api/snapshots/diff", { a, b, session, ignore }, true),
   remove: (name: string) => call("DELETE", `/api/snapshots?name=${encodeURIComponent(name)}`),
 };
+
+// RepoInfo: the chosen network-operator checkout, recent ones, and the one in use.
+export interface RepoInfo { current?: string; recent: string[]; inUse?: string; error?: string }
 
 export interface OpOptions { kubeconfig?: string; context?: string; jumps?: string[]; identityFiles?: string[]; operatorRepo?: string; timeoutSec?: number }
 export interface Condition { type: string; status: string; reason?: string; message?: string }

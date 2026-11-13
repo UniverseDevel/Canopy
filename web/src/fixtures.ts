@@ -1,7 +1,7 @@
 // Fixtures tab: build network-operator test fixtures (.txtar) from snapshots,
 // and run fixtures against the operator in the cluster with a shadow target.
 
-import { api, FixtureRun, fixturesApi, K8sResource, OpOptions, Session, snapApi } from "./api";
+import { api, FixtureRun, fixturesApi, K8sResource, OpOptions, RepoInfo, Session, snapApi } from "./api";
 import { append, clear, copyText, field, h, toast } from "./dom";
 import { errText } from "./config";
 import { help, withHelp } from "./help";
@@ -10,10 +10,8 @@ import { stringify } from "./json";
 export interface FixtureContext {
   session(): Session | null;
   options(): OpOptions;
-  // the selected device's name, if its checkout is set there
-  repoDevice(): string;
-  // lets the user choose the selected device's checkout; false if there is no saved device
-  changeRepo(): Promise<boolean>;
+  // opens the system's folder dialog; "" when cancelled
+  pickFolder(title: string, start?: string): Promise<string>;
 }
 
 const store = {
@@ -66,15 +64,10 @@ export function fixturesTab(ctx: FixtureContext) {
       provider.append(...r.providers.map((p) => h("option", { value: p }, p)));
       const want = ctx.session()?.device?.provider || store.get("provider");
       if (want && r.providers.includes(want)) provider.value = want;
-      const dev = ctx.repoDevice();
-      clear(repoLine);
-      repoLine.append(`network-operator checkout: ${r.repo} `, h("span", { class: "muted" }, dev ? `(set on ${dev})` : "(default)"), " ", changeBtn);
-      repoLine.className = "muted small";
+      await showRepo();
       await loadFixtures();
     } catch (e) {
-      clear(repoLine);
-      repoLine.append(errText(e), " ", changeBtn);
-      repoLine.className = "err small";
+      await showRepo(errText(e));
     }
   };
   const loadFixtures = async () => {
@@ -86,10 +79,31 @@ export function fixturesTab(ctx: FixtureContext) {
     } catch (e) { toast(errText(e), "err"); }
   };
   provider.addEventListener("change", loadFixtures);
-  const repoLine = h("p", { class: "muted small" }, "");
-  const changeBtn = h("button", { class: "link small", title: "Choose the network-operator checkout (a fork, for example) for the selected device", onclick: async () => {
-    if (await ctx.changeRepo()) loadProviders();
-  } }, "Change…");
+  // Which network-operator checkout: one choice for everything (not per device),
+  // with the recent ones to switch between a fork and the public repository.
+  const repoLine = h("div", { class: "row fx-repo" });
+  const choose = async (req: { path?: string; forget?: string }) => {
+    try { await api.chooseOperatorRepo(req); } catch (e) { toast(errText(e), "err"); }
+    loadProviders();
+  };
+  const showRepo = async (err = "") => {
+    let r: RepoInfo;
+    try { r = await api.operatorRepo(); } catch (e) { r = { recent: [], error: errText(e) }; }
+    const sel = h("select", { title: "network-operator checkout used for fixtures and Verify" },
+      h("option", { value: "" }, "Default" + (!r.current && r.inUse ? ` (${r.inUse})` : " (--operator-repo, CANOPY_OPERATOR_REPO or ../network-operator)")),
+      ...r.recent.map((p) => h("option", { value: p }, p)));
+    sel.value = r.current ?? "";
+    sel.addEventListener("change", () => choose({ path: sel.value }));
+    clear(repoLine);
+    repoLine.append(field(withHelp("network-operator checkout", "fixtures"), sel),
+      h("button", { class: "small", title: "Choose a checkout folder, e.g. your fork", onclick: async () => {
+        const p = await ctx.pickFolder("network-operator checkout", r.current || r.inUse);
+        if (p) choose({ path: p });
+      } }, "Browse…"),
+      ...(r.current ? [h("button", { class: "small", title: "Remove it from the list", onclick: () => choose({ forget: r.current }) }, "Forget")] : []));
+    const msg = err || r.error;
+    if (msg) repoLine.append(h("p", { class: "err small" }, msg));
+  };
 
   const run = async (text?: string, name?: string) => {
     const o = runOpts();

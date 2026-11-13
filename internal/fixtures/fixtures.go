@@ -54,13 +54,17 @@ func Dir(operatorRepo, provider string) string {
 	return filepath.Join(operatorRepo, "test", "gnmi", "testdata", provider)
 }
 
-// FindRepo returns the operator checkout: explicit (a device's checkout or
-// --operator-repo), else $CANOPY_OPERATOR_REPO, else a network-operator folder
-// next to the working directory. An explicit folder must be a checkout:
-// falling back to another one would quietly show the wrong fixtures.
+// FindRepo returns the operator checkout: explicit (--operator-repo), else the
+// one chosen in the UI (Fixtures tab), else
+// $CANOPY_OPERATOR_REPO, else a network-operator folder next to the working
+// directory. A folder given or chosen must be a checkout: falling back to
+// another one would quietly show the wrong fixtures.
 func FindRepo(explicit string) (string, error) {
+	if explicit == "" {
+		explicit = Choice().Current
+	}
 	if explicit != "" {
-		if st, err := os.Stat(filepath.Join(explicit, "test", "gnmi", "testdata")); err != nil || !st.IsDir() {
+		if !isCheckout(explicit) {
 			return "", apperr.New(apperr.ClassUsage, apperr.CodeNotFound, "%s is not a network-operator checkout (no test/gnmi/testdata)", explicit).
 				WithHint("choose the repository's top folder")
 		}
@@ -78,7 +82,7 @@ func FindRepo(explicit string) (string, error) {
 		}
 	}
 	return "", apperr.New(apperr.ClassUsage, apperr.CodeNotFound, "network-operator checkout not found").
-		WithHint("choose the device's network-operator checkout (Edit device), pass --operator-repo or set CANOPY_OPERATOR_REPO")
+		WithHint("choose the checkout in the Fixtures tab, pass --operator-repo or set CANOPY_OPERATOR_REPO")
 }
 
 // Load reads all fixtures of a provider.

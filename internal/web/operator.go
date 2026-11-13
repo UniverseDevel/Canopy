@@ -7,6 +7,7 @@ import (
 
 	"github.com/UniverseDevel/Canopy/internal/app"
 	"github.com/UniverseDevel/Canopy/internal/apperr"
+	"github.com/UniverseDevel/Canopy/internal/fixtures"
 	"github.com/UniverseDevel/Canopy/internal/generate"
 	"github.com/UniverseDevel/Canopy/internal/k8s"
 )
@@ -32,8 +33,8 @@ func (s *Server) opts(o app.OperatorOptions) app.OperatorOptions {
 	if len(o.IdentityFiles) == 0 {
 		o.IdentityFiles = d.IdentityFiles
 	}
-	if o.OperatorRepo == "" {
-		o.OperatorRepo = d.OperatorRepo
+	if o.OperatorRepo == "" && fixtures.Choice().Current == "" {
+		o.OperatorRepo = d.OperatorRepo // the chosen checkout, if any, wins (FindRepo)
 	}
 	if o.TimeoutSec == 0 {
 		o.TimeoutSec = d.TimeoutSec
