@@ -101,7 +101,7 @@ type VerifyLeaf struct {
 	Path     string `json:"path"`
 	Expected any    `json:"expected,omitempty"`
 	Actual   any    `json:"actual,omitempty"`
-	Status   string `json:"status"` // ok, mismatch, missing, present (after delete)
+	Status   string `json:"status"` // ok, mismatch, missing; after delete: ok (gone), other (a value the resource doesn't set), present
 	From     string `json:"from,omitempty"`
 }
 
@@ -205,9 +205,17 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 	}
 	check := leaves
 	if deleted {
+		// what the resource set at each path, to tell its value from another
+		// one (a device default, e.g. SR Linux's welcome banner)
+		set := map[string]fixtures.Leaf{}
+		for _, l := range leaves {
+			set[l.Path] = l
+		}
 		check = nil
 		for _, p := range gone {
-			check = append(check, fixtures.Leaf{Path: p})
+			l := set[p]
+			l.Path = p
+			check = append(check, l)
 		}
 	}
 	for _, l := range check {
@@ -216,6 +224,8 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 		switch {
 		case err != nil:
 			vl.Status, vl.Actual = "error", apperr.As(err).Message
+		case deleted && found && l.Value != nil && !equal(l.Value, actual):
+			vl.Status = "other" // the resource's value is gone; something else is there
 		case deleted && found:
 			vl.Status = "present"
 		case deleted:
@@ -230,8 +240,12 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 		v.Leaves = append(v.Leaves, vl)
 	}
 	ok := len(v.Leaves) > 0
+	others := 0
 	for _, l := range v.Leaves {
-		if l.Status != "ok" {
+		switch {
+		case l.Status == "other":
+			others++
+		case l.Status != "ok":
 			ok = false
 		}
 	}
@@ -254,6 +268,10 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 		v.Verdict = "pass"
 	default:
 		v.Verdict = "fail"
+	}
+	if others > 0 {
+		// a note, not a reason to fail
+		v.Reasons = append(v.Reasons, fmt.Sprintf("%d leaf(s) hold a value the resource doesn't set (e.g. the device's default): its own value is gone", others))
 	}
 	v.ElapsedMs = time.Since(start).Milliseconds()
 	s.Log.Info("verify", "kind", kind, "name", name, "device", v.Device, "fixture", v.Fixture, "verdict", v.Verdict)

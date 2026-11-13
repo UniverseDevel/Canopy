@@ -211,6 +211,8 @@ Exit code 0 = pass, 3 = fail.`,
 						from = "  (from spec." + l.From + ")"
 					}
 					switch {
+					case v.Mode == "deleted" && l.Status == "other":
+						fmt.Fprintf(w, "  %-8s %s (the resource set %s; now %s)\n", l.Status, l.Path, format.Scalar(l.Expected), format.Scalar(l.Actual))
 					case v.Mode == "deleted":
 						fmt.Fprintf(w, "  %-8s %s\n", l.Status, l.Path)
 					default:

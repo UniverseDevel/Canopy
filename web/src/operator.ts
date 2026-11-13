@@ -27,7 +27,7 @@ export function shortProvider(p: string) {
 }
 
 function badge(status: string, kind: "ready" | "verdict" | "leaf" = "ready") {
-  const cls = { True: "ok", pass: "ok", ok: "ok", False: "err", fail: "err", mismatch: "err", missing: "err", present: "err", error: "err" }[status] ?? "muted";
+  const cls = { True: "ok", pass: "ok", ok: "ok", other: "ok", False: "err", fail: "err", mismatch: "err", missing: "err", present: "err", error: "err" }[status] ?? "muted";
   const text = kind === "ready" ? (status === "True" ? "Ready" : status === "False" ? "Not ready" : "Unknown") : status;
   return h("span", { class: `badge ${cls}` }, text);
 }
@@ -85,10 +85,10 @@ export function operatorTab(ctx: OpContext) {
       h("p", { class: "muted small" }, `Device ${v.device} · fixture ${v.fixture} · ${v.elapsedMs} ms` + (v.alternates?.length ? ` · other fixtures: ${v.alternates.join(", ")}` : "")),
       v.reasons.length ? h("ul", { class: "reasons" }, ...v.reasons.map((r) => h("li", {}, r))) : null,
       h("table", { class: "grid verify-table" },
-        h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", {}, "Device path"), h("th", {}, v.mode === "deleted" ? "" : "Expected"), h("th", {}, v.mode === "deleted" ? "" : "On the device"), h("th", {}, "From spec"))),
+        h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", {}, "Device path"), h("th", {}, v.mode === "deleted" ? "The resource set" : "Expected"), h("th", {}, v.mode === "deleted" ? "On the device now" : "On the device"), h("th", {}, "From spec"))),
         h("tbody", {}, ...v.leaves.map((l) => h("tr", {},
           h("td", {}, badge(l.status, "leaf")), h("td", { class: "mono" }, l.path),
-          h("td", { class: "mono" }, v.mode === "deleted" ? "" : v2s(l.expected)), h("td", { class: "mono" }, v.mode === "deleted" ? "" : v2s(l.actual)),
+          h("td", { class: "mono" }, v2s(l.expected)), h("td", { class: "mono" }, v2s(l.actual)),
           h("td", { class: "mono muted" }, l.from ?? ""))))));
   };
 
