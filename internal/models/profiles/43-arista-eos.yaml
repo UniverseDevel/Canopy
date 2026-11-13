@@ -1,0 +1,16 @@
+id: arista-eos
+name: Arista EOS
+vendor: arista
+os: eos
+source: eos
+fingerprint:
+  - capabilitiesModuleRegex: '^arista-'
+  - organizationRegex: '(?i)arista'
+version:
+  getPaths:   # unverified on a device
+    - openconfig:/system/state/software-version
+    - openconfig:/components/component/state/software-version
+  match: '(\d+\.\d+\.\d+[A-Z]?)'
+  normalize:
+    - match: '^(\d+\.\d+\.\d+[A-Z]?)$'
+      folder: 'EOS-$1'

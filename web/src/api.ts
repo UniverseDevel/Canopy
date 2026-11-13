@@ -85,7 +85,7 @@ async function call<T>(method: string, url: string, body?: unknown, exact = fals
   let data: any = null;
   try { data = text ? (exact ? parse(text) : JSON.parse(text)) : null; } catch { /* not JSON */ }
   // Anything that may have reached a device is audited; tell the console.
-  if (method !== "GET" && !url.startsWith("/api/format") && !url.startsWith("/api/generate")) {
+  if (method !== "GET" && !/^\/api\/(format|generate|models\/search)/.test(url)) {
     window.dispatchEvent(new Event("canopy:audit"));
   }
   if (!res.ok) {
@@ -117,7 +117,7 @@ export const api = {
 
 export interface ModelSource { id: string; name: string; repo: string; description?: string }
 export interface ModelVersion { name: string; cached: boolean }
-export interface Detection { source?: string; deviceVersion?: string; want?: string; version?: string; exact: boolean; reason: string }
+export interface Detection { profile?: string; vendor?: string; os?: string; provider?: string; source?: string; deviceVersion?: string; want?: string; version?: string; exact: boolean; reason: string }
 export interface ModelResult { detection?: Detection; set?: { source: string; version: string; dirs: string[]; cached: boolean }; schema?: SchemaSummary; error?: AppError }
 
 export const modelsApi = {
@@ -125,6 +125,18 @@ export const modelsApi = {
   versions: (source: string, refresh = false) => call<ModelVersion[]>("GET", `/api/models/versions?source=${encodeURIComponent(source)}${refresh ? "&refresh=1" : ""}`),
   load: (source: string, version: string) => call<ModelResult>("POST", "/api/models/load", { source, version }),
   auto: (session: string) => call<ModelResult>("POST", "/api/models/auto", { session }),
+};
+
+export interface CatalogEntry {
+  source: string; version: string; path: string; module: string; kind?: string; revision?: string; namespace?: string;
+  prefix?: string; ocVersion?: string; belongsTo?: string; description?: string; imports?: string[]; deviates?: string[]; enriched: boolean;
+}
+export interface CatalogRelease { source: string; version: string; files: number; enriched: boolean; indexedAt: string }
+export interface CatalogQuery { q?: string; source?: string; version?: string; module?: string; limit?: number }
+export const catalogApi = {
+  releases: () => call<CatalogRelease[]>("GET", "/api/models/catalog"),
+  search: (q: CatalogQuery) => call<CatalogEntry[]>("POST", "/api/models/search", q),
+  index: (source: string, version: string) => call<{ source: string; version: string; files: number; enriched: boolean }>("POST", "/api/models/index", { source, version }),
 };
 
 export interface MatchEntry { module: string; status: string; advertised?: string; loaded?: string; file?: string }

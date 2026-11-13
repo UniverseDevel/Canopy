@@ -20,7 +20,8 @@ repositories) and cached in the user cache folder, so each version is fetched on
 Set GITHUB_TOKEN if the GitHub API rate limit (60 requests an hour without a
 token) gets in the way.`,
 	}
-	c.AddCommand(newModelsSourcesCmd(g), newModelsVersionsCmd(g), newModelsFetchCmd(g), newModelsDetectCmd(g), newModelsReportCmd(g))
+	c.AddCommand(newModelsSourcesCmd(g), newModelsVersionsCmd(g), newModelsFetchCmd(g), newModelsDetectCmd(g), newModelsReportCmd(g),
+		newModelsProfilesCmd(g), newModelsSearchCmd(g), newModelsContainingCmd(g), newModelsIndexCmd(g), newModelsCatalogCmd(g), newModelsPrefetchCmd(g))
 	return c
 }
 
@@ -127,7 +128,7 @@ func newModelsDetectCmd(g *globals) *cobra.Command {
 					fmt.Fprintln(w, "Platform not recognized:", d.Reason)
 					return
 				}
-				fmt.Fprintf(w, "source:  %s\ndevice:  %s\nmodels:  %s (exact: %v)\nreason:  %s\n", d.Source, d.DeviceVersion, d.Version, d.Exact, d.Reason)
+				fmt.Fprintf(w, "profile: %s\nsource:  %s\ndevice:  %s\nmodels:  %s (exact: %v)\nreason:  %s\n", d.Profile, d.Source, d.DeviceVersion, d.Version, d.Exact, d.Reason)
 				for _, x := range dirs {
 					fmt.Fprintf(w, "folder:  %s\n", x)
 				}

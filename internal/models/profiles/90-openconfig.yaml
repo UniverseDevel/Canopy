@@ -1,0 +1,11 @@
+id: openconfig
+name: OpenConfig
+vendor: ""
+os: openconfig
+source: openconfig
+fingerprint:
+  - capabilitiesModuleRegex: '^openconfig-'
+version:
+  newest: true    # Capabilities give module versions, not a release: use the newest
+operator:
+  provider: openconfig.networking.metal.ironcore.dev

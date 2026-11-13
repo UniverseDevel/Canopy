@@ -1,0 +1,13 @@
+id: nokia-sros
+name: Nokia SR OS
+vendor: nokia
+os: sros
+source: sros
+fingerprint:
+  - capabilitiesModuleRegex: '^nokia-(conf|state)$'
+version:
+  getPaths: [/state/system/version/version-number]   # e.g. B-25.10.R1; unverified
+  match: '(\d+\.\d+\.R\d+)'
+  normalize:
+    - match: '^(\d+\.\d+)\.R(\d+)$'
+      folder: 'sros_$1.r$2'

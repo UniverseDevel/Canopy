@@ -1,0 +1,15 @@
+id: nokia-srlinux
+name: Nokia SR Linux
+vendor: nokia
+os: srlinux
+source: srlinux
+fingerprint:
+  - capabilitiesModuleRegex: '^srl_nokia'
+version:
+  getPaths: [/system/information/version]   # e.g. v26.7.1-554-g78ed635f70a
+  match: '^v?(\d+\.\d+\.\d+)'
+  normalize:
+    - match: '^(\d+\.\d+\.\d+)$'
+      folder: 'v$1'
+operator:
+  provider: srlinux.nokia.networking.metal.ironcore.dev

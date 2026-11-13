@@ -1,0 +1,18 @@
+id: cisco-iosxr
+name: Cisco IOS XR
+vendor: cisco
+os: iosxr
+source: iosxr
+fingerprint:
+  - capabilitiesModuleRegex: '^Cisco-IOS-XR-'
+version:
+  # unverified on a device; the OpenConfig paths are the vendor-neutral ones
+  getPaths:
+    - openconfig:/system/state/software-version
+    - openconfig:/components/component/state/software-version
+  match: '(\d+\.\d+\.\d+)'
+  normalize:
+    - match: '^(\d+)\.(\d+)\.(\d+)$'             # 7.9.2 -> 792, 24.2.1 -> 2421
+      folder: '$1$2$3'
+operator:
+  provider: iosxr.cisco.networking.metal.ironcore.dev

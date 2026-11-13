@@ -4,6 +4,7 @@ import { snapshotsTab } from "./snapshots";
 import { operatorTab } from "./operator";
 import { auditConsole } from "./console";
 import { help, openHelpIndex, setHelpNav, withHelp } from "./help";
+import { openCatalog } from "./catalog";
 import { fixturesTab } from "./fixtures";
 import { $, append, clear, copyText, field, h, modal, toast } from "./dom";
 import { Num, stringify } from "./json";
@@ -187,7 +188,8 @@ function showLeftTab(t: LeftTab) {
 const markedOnlyBtn = h("button", { class: "small toggle", title: "Show only the marked paths (and what is under them)", onclick: () => setMarkedOnly(!markedOnly) }, "Marked only");
 leftBodies.Schema = h("div", { class: "left-body" },
   h("div", { class: "models-panel" },
-    h("div", { class: "row" }, h("strong", {}, "Models"), help("models"), modelSrcSel, modelVerSel, modelLoadBtn),
+    h("div", { class: "row" }, h("strong", {}, "Models"), help("models"), modelSrcSel, modelVerSel, modelLoadBtn,
+      h("button", { class: "small", title: "Search the modules of all indexed releases", onclick: () => openCatalog({ sources: () => modelSources, load: (s, v) => selectModelUI(s, v).then(() => loadModelSet(s, v)) }) }, "Catalog")),
     modelStatus, reportLine,
     h("details", { class: "local-models" }, h("summary", { class: "muted small" }, "Local folder instead"),
       h("div", { class: "row" }, yangInput, loadBtn))),

@@ -1,0 +1,15 @@
+id: cisco-iosxe
+name: Cisco IOS XE
+vendor: cisco
+os: iosxe
+source: iosxe
+fingerprint:
+  - capabilitiesModuleRegex: '^Cisco-IOS-XE-'
+version:
+  getPaths:   # unverified on a device
+    - openconfig:/system/state/software-version
+    - openconfig:/components/component/state/software-version
+  match: '(\d+\.\d+\.\d+)'
+  normalize:
+    - match: '^(\d+)\.(\d+)\.(\d+)$'             # 17.12.1 -> 17121
+      folder: '$1$2$3'

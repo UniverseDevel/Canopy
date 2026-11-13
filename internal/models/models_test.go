@@ -53,3 +53,43 @@ func TestSafeRel(t *testing.T) {
 		}
 	}
 }
+
+func TestProfileFolders(t *testing.T) {
+	cases := []struct{ source, in, want string }{
+		{"nxos", "10.4(3)", "10.4-3"}, {"nxos", "7.0(3)I5(1)", "7.0-3-I5-1"},
+		{"iosxr", "7.9.2", "792"}, {"iosxr", "24.2.1", "2421"}, {"iosxe", "17.12.1", "17121"},
+		{"junos", "23.4R2.13", "23.4/23.4R2"}, {"junos", "23.4R2-S1.5-EVO", "23.4/23.4R2-EVO"},
+		{"sros", "25.10.R1", "sros_25.10.r1"}, {"eos", "4.31.0F", "EOS-4.31.0F"}, {"srlinux", "26.7.1", "v26.7.1"},
+		{"nxos", "10.4-3", "10.4-3"}, // already a folder
+	}
+	for _, c := range cases {
+		if got := NormalizeVersion(c.source, c.in); got != c.want {
+			t.Errorf("%s %s: %s, want %s", c.source, c.in, got, c.want)
+		}
+	}
+}
+
+func TestDetectProfiles(t *testing.T) {
+	ctx := context.Background()
+	read := func(v string) Reader {
+		return func(_ context.Context, p string) (string, error) { return v, nil }
+	}
+	cases := []struct {
+		caps    []conn.Model
+		read    Reader
+		profile string
+		want    string
+	}{
+		{[]conn.Model{{Name: "Cisco-IOS-XR-ifmgr-cfg"}, {Name: "openconfig-interfaces"}}, read("7.9.2"), "cisco-iosxr", "792"},
+		{[]conn.Model{{Name: "junos-conf-root", Organization: "Juniper Networks"}}, read("JUNOS 23.4R2.13"), "juniper-junos", "23.4/23.4R2"},
+		{[]conn.Model{{Name: "nokia-conf"}}, read("B-25.10.R1"), "nokia-sros", "sros_25.10.r1"},
+		{[]conn.Model{{Name: "openconfig-system", Organization: "Arista Networks"}}, read("4.31.0F"), "arista-eos", "EOS-4.31.0F"},
+		{[]conn.Model{{Name: "huawei-ifm"}}, nil, "huawei-vrp", ""},
+	}
+	for _, c := range cases {
+		d := Detect(ctx, conn.Capabilities{Models: c.caps}, c.read)
+		if d.Profile != c.profile || d.Want != c.want {
+			t.Errorf("%v: %+v", c.caps[0].Name, d)
+		}
+	}
+}

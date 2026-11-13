@@ -382,3 +382,17 @@ button.help-btn:hover, button.help-btn:focus-visible { opacity: 1; color: var(--
 .help-content h4.help-group { margin: 14px 0 0; color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: .5px; }
 .help-section h4 { margin: 10px 0 2px; }
 @media (max-width: 640px) { .help-cols { grid-template-columns: 1fr; } .help-toc { display: none; } }
+
+/* ---------- model catalog ---------- */
+.catalog { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.catalog .row .grow { flex: 1; }
+.cat-cols { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; height: 52vh; min-height: 0; }
+.cat-results, .cat-side { overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.cat-side { padding: 0 10px; }
+.cat-side h4 { margin: 10px 0 2px; font-family: ui-monospace, monospace; }
+.cat-table { width: 100%; font-size: 12px; }
+.cat-table tr.clickable { cursor: pointer; }
+.cat-table tr.clickable:hover td { background: var(--sel); }
+.cat-table td { vertical-align: top; }
+.cat-index .row { margin-top: 6px; }
+@media (max-width: 760px) { .cat-cols { grid-template-columns: 1fr; height: auto; } }

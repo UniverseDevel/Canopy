@@ -1,0 +1,9 @@
+id: huawei-vrp
+name: Huawei VRP
+vendor: huawei
+os: vrp
+source: huawei
+fingerprint:
+  - capabilitiesModuleRegex: '^huawei-'
+  - organizationRegex: '(?i)huawei'
+# Huawei publishes models per version and product (8.22.0/ne8000-x): pick the release.

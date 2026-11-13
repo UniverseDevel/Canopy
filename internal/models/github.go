@@ -110,14 +110,64 @@ type dirEntry struct {
 	Path string `json:"path"`
 	Type string `json:"type"` // dir, file, submodule, symlink
 	SHA  string `json:"sha"`
+	// SubmoduleURL is set when the entry is fetched on its own and is a submodule.
+	SubmoduleURL string `json:"submodule_git_url,omitempty"`
 }
 
 // listDir lists one folder at ref.
 func (g *github) listDir(ctx context.Context, repo, ref, dir string) ([]dirEntry, error) {
-	var out []dirEntry
-	u := fmt.Sprintf("%s/repos/%s/contents/%s?ref=%s", g.api, repo, escapePath(dir), url.QueryEscape(ref))
-	err := g.getJSON(ctx, u, &out)
-	return out, err
+	list, one, err := g.contents(ctx, repo, ref, dir)
+	if err != nil {
+		return nil, err
+	}
+	if one != nil {
+		if one.Type == "submodule" {
+			return nil, &submoduleError{entry: *one}
+		}
+		return nil, apperr.New(apperr.ClassSchema, apperr.CodeSchema, "%s in github.com/%s is a %s, not a folder", dir, repo, one.Type)
+	}
+	return list, nil
+}
+
+// contents reads a path: a folder gives a list, anything else a single entry
+// (a submodule comes with its URL and pinned commit).
+func (g *github) contents(ctx context.Context, repo, ref, p string) ([]dirEntry, *dirEntry, error) {
+	u := fmt.Sprintf("%s/repos/%s/contents/%s?ref=%s", g.api, repo, escapePath(p), url.QueryEscape(ref))
+	var raw json.RawMessage
+	if err := g.getJSON(ctx, u, &raw); err != nil {
+		return nil, nil, err
+	}
+	if len(raw) > 0 && raw[0] == '[' {
+		var list []dirEntry
+		if err := json.Unmarshal(raw, &list); err != nil {
+			return nil, nil, apperr.Wrap(apperr.ClassSchema, apperr.CodeSchema, err)
+		}
+		return list, nil, nil
+	}
+	var one dirEntry
+	if err := json.Unmarshal(raw, &one); err != nil {
+		return nil, nil, apperr.Wrap(apperr.ClassSchema, apperr.CodeSchema, err)
+	}
+	return nil, &one, nil
+}
+
+// submoduleError reports that a listed path is a Git submodule.
+type submoduleError struct{ entry dirEntry }
+
+func (e *submoduleError) Error() string { return e.entry.Path + " is a submodule" }
+
+// githubRepo turns a submodule URL into owner/name; ok is false for other hosts.
+func githubRepo(u string) (string, bool) {
+	u = strings.TrimSuffix(strings.TrimSpace(u), ".git")
+	for _, p := range []string{"https://github.com/", "http://github.com/", "git@github.com:", "ssh://git@github.com/"} {
+		if strings.HasPrefix(u, p) {
+			r := strings.TrimPrefix(u, p)
+			if strings.Count(r, "/") == 1 && !strings.ContainsAny(r, " ?#") {
+				return r, true
+			}
+		}
+	}
+	return "", false
 }
 
 type treeEntry struct {

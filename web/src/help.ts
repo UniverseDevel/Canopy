@@ -10,7 +10,7 @@ import { append, clear, h, modal } from "./dom";
 
 export type Target = "tab:Data" | "tab:Snapshots" | "tab:Operator" | "tab:Fixtures" | "left:Schema" | "left:Capabilities" | "console";
 
-export type TopicId = "devices" | "connect" | "tls" | "jump" | "keychain" | "cluster" | "models" | "tree" | "qualified" | "markedOnly" | "capabilities" | "read" | "dataView" | "command" | "configure" | "snapshots" | "operator" | "verify" | "fixtures" | "fixtureRun" | "shadow" | "fixtureBuild" | "console";
+export type TopicId = "devices" | "connect" | "tls" | "jump" | "keychain" | "cluster" | "models" | "catalog" | "tree" | "qualified" | "markedOnly" | "capabilities" | "read" | "dataView" | "command" | "configure" | "snapshots" | "operator" | "verify" | "fixtures" | "fixtureRun" | "shadow" | "fixtureBuild" | "console";
 
 interface Topic {
   title: string;
@@ -81,12 +81,22 @@ const T = {
   models: {
     title: "YANG models", group: "Schema",
     body: [
-      "The schema tree comes from YANG models. Canopy picks the right set when a device connects (SR Linux from its version, NX-OS from Capabilities, OpenConfig for OpenConfig devices) and downloads only that release from GitHub into its cache.",
+      "The schema tree comes from YANG models. When a device connects, Canopy recognizes its platform from Capabilities (platform profiles for SR Linux, SR OS, NX-OS, IOS XR, IOS XE, Junos, Huawei, EOS and OpenConfig), reads its software version where the profile says how, and downloads only the matching release from GitHub into its cache.",
       "Pick another source or version here, or load a local folder of `.yang` files instead (for offline use or your own models).",
       "Modules whose imports can't be found are skipped and listed as warnings.",
     ],
-    related: ["tree", "capabilities"],
+    related: ["catalog", "tree", "capabilities"],
     cli: "canopy models versions srlinux",
+  },
+  catalog: {
+    title: "Model catalog", group: "Schema",
+    body: [
+      "A local index of the modules in model releases, searchable by module name, prefix, namespace and description. Every word must match the start of a word: `openconfig interf` finds openconfig-interfaces.",
+      "Downloaded releases are indexed from their files (revision, OpenConfig version, imports, deviations). Other releases can be indexed from a listing of their file names on GitHub, without downloading, so you can see which releases contain a module before choosing one.",
+      "Click a module to list the releases that have it, with the revision in each, and load one of them.",
+    ],
+    related: ["models", "capabilities"],
+    cli: "canopy models search WORDS",
   },
   tree: {
     title: "Schema tree", group: "Schema",

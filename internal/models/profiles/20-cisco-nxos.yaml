@@ -1,0 +1,32 @@
+id: cisco-nxos
+name: Cisco NX-OS
+vendor: cisco
+os: nxos
+source: nxos
+fingerprint:
+  - capabilitiesModuleRegex: '^Cisco-NX-OS-device$'
+version:
+  # The revision of Cisco-NX-OS-device identifies the release, as network-operator
+  # detects it (internal/provider/cisco/nxos/version.go).
+  fromCapabilities:
+    module: Cisco-NX-OS-device
+    revisions:
+      "2024-03-26": "10.4(3)"
+      "2024-10-17": "10.4(4)"
+      "2025-03-01": "10.4(5)"
+      "2025-08-30": "10.4(6)"
+      "2024-07-25": "10.5(1)"
+      "2024-11-26": "10.5(2)"
+      "2025-04-23": "10.5(3)"
+      "2025-08-12": "10.6(1)"
+      "2025-12-12": "10.6(2)"
+      "2026-04-24": "10.6(3)"
+  getPaths: [/System/showversion-items/nxosVersion]   # unverified on a device
+  match: '(\d+\.\d+\(\d+\)[A-Z0-9()]*)'
+  normalize:
+    - match: '^(\d+)\.(\d+)\((\d+)\)$'          # 10.4(3)
+      folder: '$1.$2-$3'                         # 10.4-3
+    - match: '^(\d+)\.(\d+)\((\d+)\)([A-Z]\d*)\((\d+)\)$'   # 7.0(3)I5(1)
+      folder: '$1.$2-$3-$4-$5'                   # 7.0-3-I5-1
+operator:
+  provider: nx.cisco.networking.metal.ironcore.dev

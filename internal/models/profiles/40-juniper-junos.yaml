@@ -1,0 +1,18 @@
+id: juniper-junos
+name: Juniper Junos
+vendor: juniper
+os: junos
+source: junos
+fingerprint:
+  - capabilitiesModuleRegex: '^junos-'
+  - organizationRegex: '(?i)juniper'
+version:
+  getPaths:   # unverified on a device
+    - openconfig:/system/state/software-version
+    - openconfig:/components/component/state/software-version
+  match: '(\d+\.\d+R\d+(?:-S\d+)?(?:[.\d-]*EVO)?)'
+  normalize:
+    - match: '^(\d+\.\d+)(R\d+)(?:-S\d+)?.*EVO$'  # 23.4R2-S1-EVO -> 23.4/23.4R2-EVO
+      folder: '$1/$1$2-EVO'
+    - match: '^(\d+\.\d+)(R\d+)'                  # 23.4R2.13 -> 23.4/23.4R2
+      folder: '$1/$1$2'
