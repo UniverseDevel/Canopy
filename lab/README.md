@@ -112,7 +112,15 @@ bash lab/operator/lab.sh device
 - **Don't trigger Tilt's own `leaf1` resource.** It would replace the Device with the
   sample (address `192.168.5.2:9339`, OpenConfig provider, no TLS). If it happens, run
   `lab.sh device` again.
-- `status` and `down` do what they say.
+- `status` and `down` do what they say. `down` keeps the downloaded images, so the
+  next `up` is quick.
+- `disable` is for a long break: `down`, then it removes the lab's images (SR Linux,
+  kind node, registry, cert-manager, Tilt builds, gnmic; about 3.7 GB) and the kind
+  network, and turns the SSH jump host off, so nothing starts on its own after a
+  restart. Other Docker images are left alone. `enable` undoes it: jump host on,
+  then `up`, which downloads the images again. Run both as your own user (not root,
+  the cluster belongs to your user); they ask for your sudo password for the jump
+  host, and without a terminal they print the root command to run instead.
 
 Why the operator runs from a clone on the Linux filesystem: a Windows checkout has
 Windows line endings (the operator's shell scripts fail in Linux), and Tilt's file

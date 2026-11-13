@@ -16,6 +16,11 @@
 #   kubeconfig write the kind cluster's kubeconfig to lab/.kube/config for Canopy (gitignored)
 #   status    show lab, cluster and Device state
 #   down      delete the kind cluster and destroy the SR Linux node
+#   disable   for a long break: down, remove the lab's container images (SR Linux,
+#             kind node, registry, cert-manager, Tilt builds, gnmic; ~3.7 GB) and the
+#             kind network, and turn the SSH jump host off, so nothing starts on its
+#             own after a restart (needs sudo for the jump host)
+#   enable    undo 'disable': jump host on, then 'up' (downloads the images again)
 #   jumphost  (as root: wsl -d Ubuntu -u root -- bash lab/operator/lab.sh jumphost)
 #             SSH server on 127.0.0.1:2222 with user "canopy" (port forwarding only),
 #             authorizing the lab key lab/.ssh/canopy_lab_ed25519 (created if missing),
@@ -65,6 +70,18 @@ export_ca() {
   mkdir -p "$CANOPY_LAB/.tls"
   cp "$LAB_TLS/ca/ca.pem" "$CANOPY_LAB/.tls/ca.pem"
   echo "lab CA exported to lab/.tls/ca.pem"
+}
+
+# as_root runs a command as root: directly, with sudo, or explains how.
+as_root() {
+  if [ "$(id -u)" = 0 ]; then
+    "$@"
+  elif sudo -n true 2>/dev/null || [ -t 0 ]; then
+    sudo "$@"
+  else
+    echo "needs root; run: wsl -d Ubuntu -u root -- $*" >&2
+    return 1
+  fi
 }
 
 operator_clone() {
@@ -159,11 +176,33 @@ case "${1:-}" in
     (cd "$OPERATOR_DIR" && make kind-delete) || true
     (cd "$CANOPY_LAB" && containerlab destroy -t canopy-dev.clab.yml --cleanup) || true
     ;;
+  disable)
+    # For a long break: everything down, images removed, nothing left to start on its own.
+    "$0" down
+    # only the lab's images, by repository; other Docker images are left alone
+    ids="$(docker images -a --format '{{.Repository}} {{.ID}}' \
+      | grep -E '^(ghcr\.io/nokia/srlinux|kindest/node|registry|localhost:5000/[^ ]+|quay\.io/jetstack/cert-manager-[^ ]+|ghcr\.io/openconfig/gnmic|busybox) ' \
+      | awk '{print $2}' | sort -u)"
+    if [ -n "$ids" ]; then
+      docker rmi -f $ids >/dev/null
+      echo "removed $(echo "$ids" | wc -l) lab image(s)"
+    fi
+    docker network rm kind >/dev/null 2>&1 || true
+    if systemctl is-enabled ssh >/dev/null 2>&1 || systemctl is-active ssh >/dev/null 2>&1; then
+      as_root systemctl disable --now ssh ssh.socket && echo "SSH jump host disabled"
+    fi
+    echo "Lab disabled. 'lab.sh enable' brings it back (downloads the images again)."
+    ;;
+  enable)
+    # Undo 'disable': jump host on, node and cluster up (images are downloaded again).
+    as_root bash "$0" jumphost || echo "continuing without the jump host" >&2
+    "$0" up
+    ;;
   jumphost)
     jumphost
     ;;
   *)
-    sed -n '2,27p' "$0"
+    sed -n '2,33p' "$0"
     exit 1
     ;;
 esac
