@@ -26,3 +26,4 @@ lab/.kube/
 
 # Encrypted device passwords (canopy conn password --store file)
 *.secrets.yaml
+/lab/connections.yaml
