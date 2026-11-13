@@ -190,7 +190,15 @@ func (s *Server) opVerify(w http.ResponseWriter, r *http.Request) {
 	if v != nil {
 		sum += ": " + v.Verdict
 	}
-	s.record(req.Session, "verify", sum, nil, start, err)
+	// the reads Verify made, as a gNMIc command to repeat them by hand
+	var gen *generate.Request
+	if v != nil && len(v.Leaves) > 0 {
+		gen = &generate.Request{Mode: "get"}
+		for _, l := range v.Leaves {
+			gen.Paths = append(gen.Paths, l.Path)
+		}
+	}
+	s.record(req.Session, "verify", sum, gen, start, err)
 	if err != nil {
 		writeErr(w, err, 0)
 		return

@@ -24,6 +24,7 @@ type AuditEntry struct {
 	Action  string            `json:"action"` // connect, get, set, snapshot, verify, ...
 	Summary string            `json:"summary,omitempty"`
 	Command map[string]string `json:"command,omitempty"` // shell -> command line
+	Note    string            `json:"note,omitempty"`    // what the command needs (e.g. TLS files)
 	OK      bool              `json:"ok"`
 	Error   string            `json:"error,omitempty"`
 	Ms      int64             `json:"ms"`
@@ -95,6 +96,7 @@ func (s *Server) record(session, action, summary string, gen *generate.Request, 
 			r.Shell = sh
 			if out, gerr := s.svc.Generate(session, nil, r); gerr == nil && len(out.Commands) > 0 {
 				e.Command[sh] = out.Commands[0].Text
+				e.Note = out.Commands[0].Note
 			}
 		}
 	}

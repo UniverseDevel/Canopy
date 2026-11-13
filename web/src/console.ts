@@ -56,6 +56,7 @@ export function auditConsole(ctx: ConsoleContext) {
       h("span", { class: "csum", title: e.summary ?? "" }, e.summary ?? ""),
       h("span", { class: "cstat " + (e.ok ? "ok" : "err"), title: e.error ?? "" }, e.ok ? `ok · ${e.ms} ms` : `failed · ${e.ms} ms`),
       c ? h("code", { class: "ccmd", title: "Click to copy", onclick: () => copyText(c, "command") }, c) : null,
+      c && e.note ? h("div", { class: "cerr muted small" }, e.note) : null,
       !e.ok && e.error ? h("div", { class: "cerr err small" }, e.error) : null);
   };
 

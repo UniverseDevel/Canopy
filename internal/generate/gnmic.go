@@ -154,11 +154,24 @@ func Gnmic(r Request) (*Output, error) {
 	case r.Target.SkipVerify:
 		l.lit("--skip-verify")
 	}
+	// Certificates held in memory (e.g. from a network-operator Device's
+	// Secrets) have no file: name placeholder files and say so in the note.
+	memTLS := ""
 	if r.Target.CAFile != "" {
 		l.lit("--tls-ca", q(r.Target.CAFile))
+	} else if len(r.Target.CAPEM) > 0 && !r.Target.Insecure {
+		l.lit("--tls-ca", "ca.pem")
+		memTLS = "ca.pem"
 	}
 	if r.Target.CertFile != "" {
 		l.lit("--tls-cert", q(r.Target.CertFile), "--tls-key", q(r.Target.KeyFile))
+	} else if len(r.Target.CertPEM) > 0 && !r.Target.Insecure {
+		l.lit("--tls-cert", "cert.pem", "--tls-key", "key.pem")
+		memTLS = strings.TrimPrefix(memTLS+", cert.pem, key.pem", ", ")
+	}
+	memNote := ""
+	if memTLS != "" {
+		memNote = "save the device's TLS certificates (for an operator Device, from its TLS Secrets) as " + memTLS + " first; Canopy holds them in memory only"
 	}
 	if r.Target.ServerName != "" && !r.Target.Insecure {
 		l.lit("--tls-server-name", q(r.Target.ServerName))
@@ -221,6 +234,7 @@ func Gnmic(r Request) (*Output, error) {
 		for _, s := range l.segs {
 			c.Text += s.text
 		}
+		c.Note = memNote
 		out.Commands = append(out.Commands, c)
 		return out, nil
 	}
@@ -257,8 +271,11 @@ func Gnmic(r Request) (*Output, error) {
 	c.Text = strings.Join(ssh, " ") + " " + remoteArg(shell, l.segs)
 	host, _, _ := net.SplitHostPort(r.Target.Address)
 	c.Note = "gNMIc runs on " + dest + " (it must be installed there) and connects to " + host + " directly"
-	if r.Target.CAFile != "" || r.Target.CertFile != "" {
+	if r.Target.CAFile != "" || r.Target.CertFile != "" || memTLS != "" {
 		c.Note += "; the TLS files must exist at these paths on " + dest
+	}
+	if memNote != "" {
+		c.Note += "; " + memNote
 	}
 	out.Commands = append(out.Commands, c)
 	return out, nil

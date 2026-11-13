@@ -96,3 +96,16 @@ func TestMixedOriginsSplit(t *testing.T) {
 		t.Errorf("got %s", c)
 	}
 }
+
+// An operator Device's CA comes from a Secret, in memory: the command needs a
+// file for it, named as a placeholder and explained in the note.
+func TestInMemoryCA(t *testing.T) {
+	out, err := Gnmic(Request{Target: conn.Options{Address: "10.0.0.1:57400", CAPEM: []byte("pem")}, Paths: []string{"/system"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := out.Commands[0]
+	if !strings.Contains(c.Text, "--tls-ca ca.pem") || !strings.Contains(c.Note, "ca.pem") {
+		t.Errorf("text %q note %q", c.Text, c.Note)
+	}
+}

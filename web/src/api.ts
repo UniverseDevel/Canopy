@@ -223,7 +223,7 @@ export const opApi = {
 
 export interface AuditEntry {
   seq: number; time: string; session?: string; device?: string; action: string; summary?: string;
-  command?: Record<string, string>; ok: boolean; error?: string; ms: number;
+  command?: Record<string, string>; note?: string; ok: boolean; error?: string; ms: number;
 }
 export const auditApi = {
   list: (since: number) => call<{ entries: AuditEntry[]; file: string }>("GET", `/api/audit?since=${since}`),
