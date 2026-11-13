@@ -248,7 +248,7 @@ large public repositories without cloning them**.
 | Type | Use | Mechanism |
 |---|---|---|
 | `github` | YangModels/yang, openconfig/public, vendor repos | GitHub REST API for tree listings, `raw.githubusercontent.com` for content |
-| `git` | Any Git host, offline mirrors, private repos | Partial clone `--filter=blob:none` plus sparse checkout of only the needed folders |
+| `git` | *Not planned (decided 2026-11-13); use `local`.* Any Git host, offline mirrors, private repos | Partial clone `--filter=blob:none` plus sparse checkout of only the needed folders |
 | `local` | A folder on disk, the user's own model store | Directory walk |
 | `device` | Models straight from the device | NETCONF `get-schema` (RFC 6022) |
 
