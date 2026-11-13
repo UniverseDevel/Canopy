@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/UniverseDevel/Canopy/internal/app"
 	"github.com/UniverseDevel/Canopy/internal/catalog"
 	"github.com/UniverseDevel/Canopy/internal/models"
 )
@@ -206,4 +207,57 @@ func ocv(e catalog.Entry) string {
 		return "oc " + e.OCVersion
 	}
 	return ""
+}
+
+func newModelsFromDeviceCmd(g *globals) *cobra.Command {
+	var f targetFlags
+	var req app.DeviceModelsRequest
+	cmd := &cobra.Command{
+		Use:   "from-device",
+		Short: "Download the device's own YANG modules over NETCONF (get-schema)",
+		Long: `Connects with gNMI as usual, then opens NETCONF over SSH (port 830 unless
+--netconf-port says otherwise) on the device's address, with the same user name,
+password and jump hosts, lists the schemas the device offers
+(ietf-netconf-monitoring) and downloads each one with get-schema (RFC 6022).
+Useful when a device's models aren't published. Read only. The modules are kept
+per device in the model cache; --refresh downloads them again.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			t, err := g.target(&f, true)
+			if err != nil {
+				return err
+			}
+			svc := g.service()
+			defer svc.Close()
+			sess, err := g.connect(ctx(cmd), svc, t)
+			if err != nil {
+				return err
+			}
+			req.Session = sess.ID
+			req.AcceptHostKeys = append(req.AcceptHostKeys, t.AcceptHostKeys...)
+			req.SaveHostKeys = t.SaveHostKeys
+			res, err := svc.DeviceModels(ctx(cmd), req, g.progress())
+			if err != nil {
+				return err
+			}
+			return g.result(cmd, res, func(w io.Writer) {
+				st := "downloaded"
+				if res.Cached {
+					st = "from an earlier download"
+				}
+				fmt.Fprintf(w, "%d modules (%s)\nfolder: %s\n", res.Files, st, res.Dir)
+				if res.Schema != nil {
+					fmt.Fprintf(w, "loaded: %d modules, %d nodes\n", len(res.Schema.Modules), res.Schema.Nodes)
+				}
+				for _, s := range res.Skipped {
+					fmt.Fprintf(w, "skipped: %s\n", s)
+				}
+			})
+		},
+	}
+	addTargetFlags(cmd, &f)
+	cmd.Flags().IntVar(&req.Port, "netconf-port", 830, "NETCONF port on the device")
+	cmd.Flags().StringVar(&req.Host, "netconf-host", "", "NETCONF host, when not the gNMI target's host")
+	cmd.Flags().BoolVar(&req.Refresh, "refresh", false, "download again instead of using the earlier download")
+	return cmd
 }

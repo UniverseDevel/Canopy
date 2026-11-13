@@ -497,3 +497,18 @@ func currentUser() string {
 	}
 	return "root"
 }
+
+// Handshake runs an SSH client handshake over conn with the jump-host rules
+// (agent, keys, password, known_hosts and accepted host keys), for a device
+// reached through the chain, such as a NETCONF server.
+func Handshake(ctx context.Context, conn net.Conn, user, addr string, cfg Config) (*ssh.Client, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	p, _ := strconv.Atoi(port)
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 15 * time.Second
+	}
+	return handshake(ctx, conn, Hop{User: user, Host: host, Port: p}, cfg)
+}

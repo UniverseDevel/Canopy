@@ -247,3 +247,13 @@ func (b basicAuth) GetRequestMetadata(context.Context, ...string) (map[string]st
 }
 
 func (basicAuth) RequireTransportSecurity() bool { return false }
+
+// DialTCP opens another TCP connection to addr the way this connection reaches
+// the device: through the SSH jump hosts when there are any.
+func (c *Conn) DialTCP(ctx context.Context, addr string) (net.Conn, error) {
+	if c.chain != nil {
+		return c.chain.DialContext(ctx, "tcp", addr)
+	}
+	var d net.Dialer
+	return d.DialContext(ctx, "tcp", addr)
+}

@@ -21,7 +21,7 @@ Set GITHUB_TOKEN if the GitHub API rate limit (60 requests an hour without a
 token) gets in the way.`,
 	}
 	c.AddCommand(newModelsSourcesCmd(g), newModelsVersionsCmd(g), newModelsFetchCmd(g), newModelsDetectCmd(g), newModelsReportCmd(g),
-		newModelsProfilesCmd(g), newModelsSearchCmd(g), newModelsContainingCmd(g), newModelsIndexCmd(g), newModelsCatalogCmd(g), newModelsPrefetchCmd(g))
+		newModelsProfilesCmd(g), newModelsSearchCmd(g), newModelsContainingCmd(g), newModelsIndexCmd(g), newModelsCatalogCmd(g), newModelsPrefetchCmd(g), newModelsFromDeviceCmd(g))
 	return c
 }
 

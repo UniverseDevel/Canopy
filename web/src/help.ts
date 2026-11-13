@@ -10,7 +10,7 @@ import { append, clear, h, modal } from "./dom";
 
 export type Target = "tab:Data" | "tab:Snapshots" | "tab:Operator" | "tab:Fixtures" | "left:Schema" | "left:Capabilities" | "console";
 
-export type TopicId = "devices" | "connect" | "tls" | "jump" | "keychain" | "cluster" | "models" | "catalog" | "tree" | "qualified" | "markedOnly" | "capabilities" | "read" | "dataView" | "command" | "configure" | "snapshots" | "operator" | "verify" | "fixtures" | "fixtureRun" | "shadow" | "fixtureBuild" | "console";
+export type TopicId = "devices" | "connect" | "tls" | "jump" | "keychain" | "cluster" | "models" | "catalog" | "netconf" | "tree" | "qualified" | "markedOnly" | "capabilities" | "read" | "dataView" | "command" | "configure" | "snapshots" | "operator" | "verify" | "fixtures" | "fixtureRun" | "shadow" | "fixtureBuild" | "console";
 
 interface Topic {
   title: string;
@@ -85,8 +85,17 @@ const T = {
       "Pick another source or version here, or load a local folder of `.yang` files instead (for offline use or your own models).",
       "Modules whose imports can't be found are skipped and listed as warnings.",
     ],
-    related: ["catalog", "tree", "capabilities"],
+    related: ["catalog", "netconf", "tree", "capabilities"],
     cli: "canopy models versions srlinux",
+  },
+  netconf: {
+    title: "Models from the device", group: "Schema",
+    body: [
+      "Downloads the YANG modules the device itself implements, for devices whose models aren't published or don't match a release. Canopy opens NETCONF over SSH (port 830 unless you change it) with the same user name, password and jump hosts, lists the schemas the device offers (ietf-netconf-monitoring) and downloads each with get-schema (RFC 6022).",
+      "It only reads. NETCONF has to be enabled on the device. The modules are kept per device in the model cache and reused next time; they are also added to the catalog.",
+    ],
+    related: ["models", "catalog", "jump"],
+    cli: "canopy models from-device --conn NAME",
   },
   catalog: {
     title: "Model catalog", group: "Schema",

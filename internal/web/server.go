@@ -125,6 +125,7 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("POST /api/models/search", s.catSearch)
 	api.HandleFunc("POST /api/models/index", s.catIndex)
 	api.HandleFunc("GET /api/models/profiles", s.profiles)
+	api.HandleFunc("POST /api/models/device", s.deviceModels)
 	api.HandleFunc("POST /api/set", s.set)
 	api.HandleFunc("GET /api/schema/skeleton", s.skeleton)
 	api.HandleFunc("GET /api/snapshots", s.snapshotsList)

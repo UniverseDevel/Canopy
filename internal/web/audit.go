@@ -105,3 +105,19 @@ func (s *Server) auditList(w http.ResponseWriter, r *http.Request) {
 	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
 	writeJSON(w, map[string]any{"entries": s.audit.since(since), "file": s.audit.file})
 }
+
+// recordCmd audits an operation whose equivalent is a fixed command (the same
+// for both shells).
+func (s *Server) recordCmd(session, action, summary, cmd string, start time.Time, err error) {
+	e := AuditEntry{Session: session, Action: action, Summary: summary, OK: err == nil, Ms: time.Since(start).Milliseconds()}
+	if err != nil {
+		e.Error = apperr.As(err).Error()
+	}
+	if sess, serr := s.svc.Session(session); serr == nil {
+		e.Device = sess.Label
+	}
+	if cmd != "" {
+		e.Command = map[string]string{"bash": cmd, "powershell": cmd}
+	}
+	s.audit.add(e)
+}

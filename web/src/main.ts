@@ -1,4 +1,4 @@
-import { api, ApiError, GetResult, MatchReport, modelsApi, ModelSource, opApi, OpOptions, reportApi, NodeDetail, Preset, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
+import { api, ApiError, catalogApi, GetResult, MatchReport, modelsApi, ModelSource, opApi, OpOptions, reportApi, NodeDetail, Preset, SchemaSummary, Session, SNode, Target, TypeInfo } from "./api";
 import { openConfigDialog } from "./config";
 import { snapshotsTab } from "./snapshots";
 import { operatorTab } from "./operator";
@@ -189,6 +189,7 @@ const markedOnlyBtn = h("button", { class: "small toggle", title: "Show only the
 leftBodies.Schema = h("div", { class: "left-body" },
   h("div", { class: "models-panel" },
     h("div", { class: "row" }, h("strong", {}, "Models"), help("models"), modelSrcSel, modelVerSel, modelLoadBtn,
+      h("button", { class: "small", title: "Download the device's own YANG modules over NETCONF (get-schema)", onclick: () => modelsFromDevice() }, "From device"),
       h("button", { class: "small", title: "Search the modules of all indexed releases", onclick: () => openCatalog({ sources: () => modelSources, load: (s, v) => selectModelUI(s, v).then(() => loadModelSet(s, v)) }) }, "Catalog")),
     modelStatus, reportLine,
     h("details", { class: "local-models" }, h("summary", { class: "muted small" }, "Local folder instead"),
@@ -686,6 +687,48 @@ async function loadModelSet(src = modelSrcSel.value, ver = modelVerSel.value, no
     return false;
   } finally {
     modelLoadBtn.disabled = false;
+  }
+}
+
+// modelsFromDevice downloads the modules the device implements over NETCONF.
+async function modelsFromDevice() {
+  const s = S.session;
+  if (!s) { toast("Connect a device first", "err"); return; }
+  const port = h("input", { type: "number", value: "830", min: "1", max: "65535" });
+  const host = h("input", { placeholder: "the device's address" });
+  const refresh = h("input", { type: "checkbox" });
+  const r = await modal("YANG models from the device", h("div", { class: "form" },
+    h("p", { class: "muted small" }, `Opens NETCONF over SSH on ${s.label} with the same user, password and jump hosts, lists the schemas the device offers and downloads each with get-schema. Read only. `, help("netconf")),
+    h("div", { class: "form-grid" }, field("NETCONF port", port), field("Host (optional)", host)),
+    h("label", { class: "check" }, refresh, " Download again (otherwise an earlier download is reused)")),
+    [{ label: "Download and load", primary: true, value: "ok" }]);
+  if (r !== "ok") return;
+  const req = { session: s.id, port: Number(port.value) || 830, host: host.value.trim() || undefined, refresh: refresh.checked, acceptHostKeys: [] as string[], saveHostKeys: false };
+  setModelStatus(`Downloading the models from ${s.label} over NETCONF…`);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await catalogApi.fromDevice(req);
+      if (res.schema) await schemaLoaded(res.schema);
+      const note = `from the device over NETCONF · ${res.files} modules${res.cached ? " (earlier download)" : ""}`;
+      setModelStatus(note + (res.skipped?.length ? ` · ${res.skipped.length} skipped` : ""));
+      rememberModels({ kind: "dirs", dirs: [res.dir] });
+      return;
+    } catch (e) {
+      if (e instanceof ApiError && e.err.code === "host_key_unknown") {
+        const x = e.err.details ?? {};
+        const ok = await modal("Unknown SSH host key",
+          h("div", {}, h("p", {}, `The NETCONF host key of ${x.jumpHost} is not in known_hosts.`),
+            h("pre", { class: "fp" }, `${x.keyType}\n${x.fingerprint}`),
+            h("p", { class: "muted small" }, "Compare it with the fingerprint from the device's administrator. Trusting adds it to known_hosts.")),
+          [{ label: "Trust and continue", primary: true, value: "yes" }]);
+        if (ok !== "yes") { setModelStatus("Cancelled", true); return; }
+        req.acceptHostKeys.push(x.fingerprint);
+        req.saveHostKeys = true;
+        continue;
+      }
+      setModelStatus(errText(e), true);
+      return;
+    }
   }
 }
 

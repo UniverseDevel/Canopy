@@ -133,7 +133,10 @@ export interface CatalogEntry {
 }
 export interface CatalogRelease { source: string; version: string; files: number; enriched: boolean; indexedAt: string }
 export interface CatalogQuery { q?: string; source?: string; version?: string; module?: string; limit?: number }
+export interface DeviceModelsResult { dir: string; files: number; skipped?: string[]; cached: boolean; schema?: SchemaSummary }
 export const catalogApi = {
+  fromDevice: (req: { session: string; port?: number; host?: string; acceptHostKeys?: string[]; saveHostKeys?: boolean; refresh?: boolean }) =>
+    call<DeviceModelsResult>("POST", "/api/models/device", req),
   releases: () => call<CatalogRelease[]>("GET", "/api/models/catalog"),
   search: (q: CatalogQuery) => call<CatalogEntry[]>("POST", "/api/models/search", q),
   index: (source: string, version: string) => call<{ source: string; version: string; files: number; enriched: boolean }>("POST", "/api/models/index", { source, version }),
