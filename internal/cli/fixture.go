@@ -73,7 +73,7 @@ prefixes the device sent; the provider's fake server compares the same way.`,
 	export.Flags().StringVar(&expect, "expect", "", "snapshot after the resource was applied")
 	export.Flags().StringVar(&del, "delete", "", "snapshot after the resource was deleted")
 	export.Flags().StringVar(&title, "title", "", "fixture title (first line)")
-	export.Flags().StringVarP(&out, "out", "o", "", "output file (default: stdout)")
+	export.Flags().StringVar(&out, "out", "", "output file (default: stdout)")
 	c.AddCommand(export)
 	return c
 }
