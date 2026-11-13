@@ -176,10 +176,19 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 	}
 	v := &Verification{Device: sess.Label, Mode: "applied", Reasons: []string{}, Leaves: []VerifyLeaf{},
 		Address: sess.Address, Jumps: sess.Jumps, Provider: sess.Device.Provider}
+	provider := sess.Device.Provider
 	if u, err := cl.Device(ctx, sess.Device.Namespace, sess.Device.Name); err == nil {
 		d := k8s.ToDevice(u)
 		v.DeviceInfo = &d
+		// The Device may have been changed or recreated since Canopy connected
+		// to it: its provider now decides the fixtures, not the one at connect.
+		if d.Provider != "" && d.Provider != provider {
+			v.Reasons = append(v.Reasons, fmt.Sprintf("the Device's provider changed from %s to %s since Canopy connected; using %s", provider, d.Provider, d.Provider))
+			provider = d.Provider
+			sess.Device = &DeviceRef{Namespace: sess.Device.Namespace, Name: sess.Device.Name, Provider: provider}
+		}
 	}
+	v.Provider = provider
 	var spec map[string]any
 	if deleted {
 		v.Mode = "deleted"
@@ -198,7 +207,7 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 	if err != nil {
 		return nil, err
 	}
-	v.FixtureDir = fixtures.Dir(repo, sess.Device.Provider)
+	v.FixtureDir = fixtures.Dir(repo, provider)
 	all, err := fixtures.Load(v.FixtureDir)
 	if err != nil {
 		return nil, err
@@ -215,7 +224,7 @@ func (s *Service) Verify(ctx context.Context, o OperatorOptions, id, kind, ns, n
 		}
 	}
 	if fx == nil {
-		return nil, apperr.New(apperr.ClassUsage, apperr.CodeNotFound, "no fixture for %s in %s", kind, sess.Device.Provider).
+		return nil, apperr.New(apperr.ClassUsage, apperr.CodeNotFound, "no fixture for %s in %s", kind, provider).
 			WithHint("the provider may not support this kind")
 	}
 	v.Fixture = fx.File
