@@ -152,13 +152,13 @@ func (s *Service) Connect(ctx context.Context, t Target) (*Session, error) {
 	if t.Username == "" {
 		t.Username = os.Getenv("GNMI_USERNAME")
 	}
-	// Password order: typed, the preset's own variable, the OS keychain, then
-	// GNMI_PASSWORD.
+	// Password order: typed, the preset's own variable, the OS keychain or the
+	// encrypted password file, then GNMI_PASSWORD.
 	if t.Password == "" && preset != nil && preset.PasswordEnv != "" {
 		t.Password = os.Getenv(preset.PasswordEnv)
 	}
 	if t.Password == "" && preset != nil {
-		t.Password, _ = secrets.Get(preset.Name)
+		t.Password, _ = secrets.Lookup(preset.Name, preset.Source)
 	}
 	if t.Password == "" {
 		t.Password = os.Getenv("GNMI_PASSWORD")

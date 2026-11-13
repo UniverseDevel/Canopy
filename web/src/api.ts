@@ -31,7 +31,7 @@ export interface Preset {
   serverName?: string; username?: string; passwordEnv?: string; timeoutSec?: number;
   jumps?: string[]; identityFiles?: string[]; encoding?: string; yangDirs?: string[]; paths?: string[]; models?: string;
   lastSeen?: { time: string; gnmiVersion?: string; encodings?: string[]; models: number };
-  source?: string; readOnly?: boolean;
+  source?: string; readOnly?: boolean; passwordStored?: "keychain" | "file";
 }
 
 export interface TypeInfo {
@@ -104,8 +104,10 @@ export const api = {
   generate: (req: Record<string, unknown>) => call<GenOutput>("POST", "/api/generate", req),
   loadSchema: (dirs: string[], force = false) => call<SchemaSummary>("POST", "/api/schema/load", { dirs, force }),
   presets: () => call<Preset[]>("GET", "/api/connections"),
-  savePreset: (p: Preset, keychain?: { password?: string; rememberPassword?: boolean; forgetPassword?: boolean }) =>
+  savePreset: (p: Preset, keychain?: { password?: string; rememberPassword?: boolean; passwordStore?: string; forgetPassword?: boolean }) =>
     call<Preset>("PUT", "/api/connections", { ...p, ...(keychain ?? {}) }),
+  presetPassword: (req: { name: string; password?: string; store?: string; forget?: boolean }) =>
+    call<{ message: string }>("POST", "/api/connections/password", req),
   deletePreset: (name: string) => call("DELETE", `/api/connections?name=${encodeURIComponent(name)}`),
   schema: () => call<SchemaSummary>("GET", "/api/schema"),
   children: (id: number) => call<SNode[]>("GET", `/api/schema/children?id=${id}`),

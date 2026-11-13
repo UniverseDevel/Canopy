@@ -59,6 +59,7 @@ func addTargetFlags(cmd *cobra.Command, f *targetFlags) {
 func (g *globals) target(f *targetFlags, needPassword bool) (app.Target, error) {
 	var t app.Target
 	passwordEnv := "GNMI_PASSWORD"
+	presetSource := ""
 	set := func(name string) bool { return f.preset == "" || f.fs.Changed(name) }
 	if f.preset != "" {
 		p, err := g.presets().Get(f.preset)
@@ -72,6 +73,7 @@ func (g *globals) target(f *targetFlags, needPassword bool) (app.Target, error) 
 		if p.PasswordEnv != "" {
 			passwordEnv = p.PasswordEnv
 		}
+		presetSource = p.Source
 	}
 	if set("target") {
 		t.Address = f.address
@@ -119,9 +121,9 @@ func (g *globals) target(f *targetFlags, needPassword bool) (app.Target, error) 
 		t.Password = os.Getenv("GNMI_PASSWORD")
 	}
 	if f.preset != "" {
-		// The keychain comes before the generic GNMI_PASSWORD (but after the
-		// preset's own variable).
-		if pw, ok := secrets.Get(t.Preset); ok && (passwordEnv == "GNMI_PASSWORD" || os.Getenv(passwordEnv) == "") {
+		// A stored password (keychain or encrypted file) comes before the generic
+		// GNMI_PASSWORD (but after the preset's own variable).
+		if pw, where := secrets.Lookup(t.Preset, presetSource); where != "" && (passwordEnv == "GNMI_PASSWORD" || os.Getenv(passwordEnv) == "") {
 			t.Password = pw
 		}
 	}

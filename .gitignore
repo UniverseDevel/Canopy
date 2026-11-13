@@ -23,3 +23,6 @@ lab/.tls/
 lab/.ssh/
 # Kind kubeconfig written by lab/operator/lab.sh kubeconfig
 lab/.kube/
+
+# Encrypted device passwords (canopy conn password --store file)
+*.secrets.yaml

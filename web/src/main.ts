@@ -445,14 +445,27 @@ async function selectDevice(d: Device) {
   if (d.session && S.session?.id !== d.session.id) await activate(d.session.id);
 }
 
-function passwordPrompt(title: string, note: string): Promise<string | null> {
+// rememberSelect chooses where a saved device's password is remembered.
+function rememberSelect(current?: string) {
+  return h("select", {},
+    h("option", { value: "" }, current ? "Keep as it is" : "Don't remember it"),
+    h("option", { value: "keychain" }, "In the OS keychain"),
+    h("option", { value: "file" }, "In an encrypted file next to the connections file (git-ignored)"));
+}
+const storeName = (s?: string) => s === "file" ? "the encrypted password file" : s === "keychain" ? "the OS keychain" : "";
+
+// passwordPrompt asks for a password; with remember, also where to keep it.
+function passwordPrompt(title: string, note: string, remember = false): Promise<{ value: string; store: string } | null> {
   const inp = secretInput({ placeholder: "password" });
+  const sel = remember ? rememberSelect() : null;
   return new Promise((res) => {
+    const done = () => ({ value: inp.value, store: sel?.value ?? "" });
     inp.addEventListener("keydown", (ev: KeyboardEvent) => {
-      if (ev.key === "Enter") { (inp.closest(".modal-back") as HTMLElement).remove(); res(inp.value); }
+      if (ev.key === "Enter") { (inp.closest(".modal-back") as HTMLElement).remove(); res(done()); }
     });
-    modal(title, h("div", { class: "form" }, h("p", { class: "muted small" }, note), inp), [{ label: "OK", primary: true, value: "ok" }])
-      .then((r) => res(r === "ok" ? inp.value : null));
+    modal(title, h("div", { class: "form" }, h("p", { class: "muted small" }, note), inp,
+      sel ? field(withHelp("Remember it (once it works)", "keychain"), sel) : null), [{ label: "OK", primary: true, value: "ok" }])
+      .then((r) => res(r === "ok" ? done() : null));
   });
 }
 
@@ -461,6 +474,7 @@ async function connectDevice(d: Device) {
   d.error = "";
   renderDevices();
   const t: Target = { ...d.target, password: d.password };
+  let rememberAs = ""; // where to keep a password typed at the prompt, once it works
   try {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
@@ -469,6 +483,10 @@ async function connectDevice(d: Device) {
           : await api.connect(t);
         d.session = s;
         d.state = "on";
+        if (rememberAs && d.preset && t.password) {
+          api.presetPassword({ name: d.preset.name, password: t.password, store: rememberAs })
+            .then((r) => { toast(`Password ${r.message}`); loadDevices(); }).catch((e) => toast(errText(e), "err"));
+        }
         S.sessions.push(s);
         selectedKey = d.key;
         renderDevices();
@@ -492,16 +510,18 @@ async function connectDevice(d: Device) {
         if (e.err.code === "passphrase_required") {
           const v = await passwordPrompt(`Passphrase for ${x.keyFile}`, "The SSH key is protected by a passphrase. It is kept in memory only.");
           if (v === null) throw e;
-          t.passphrases = { ...(t.passphrases ?? {}), [x.keyFile]: v };
+          t.passphrases = { ...(t.passphrases ?? {}), [x.keyFile]: v.value };
           continue;
         }
         if (e.err.code === "auth_failed") {
           const v = await passwordPrompt(`Password for ${t.username || "the device"} on ${d.name}`,
-            t.password ? "The password was not accepted. Try again (kept in memory only)." :
-              "No password was set for this device (or the one from the environment was not accepted). It is kept in memory only.");
+            t.password ? "The password was not accepted. Try again." :
+              "No password was set for this device (or the one from the environment or a stored one was not accepted).",
+            !!d.preset);
           if (v === null) throw e;
-          t.password = v;
-          d.password = v;
+          t.password = v.value;
+          d.password = v.value;
+          rememberAs = v.store;
           continue;
         }
         throw e;
@@ -565,14 +585,17 @@ async function openDeviceDialog(edit?: Device) {
   if (modelSrc.value) fillVersions();
   const save = h("input", { type: "checkbox", checked: !!p && !p.readOnly });
   const pwEnv = h("input", { value: v(p?.passwordEnv), placeholder: "GNMI_PASSWORD" });
-  const keychain = h("input", { type: "checkbox" });
+  const remember = rememberSelect(p?.passwordStored);
   const forget = h("input", { type: "checkbox" });
+  const stored = p?.passwordStored ? `A password is stored in ${storeName(p.passwordStored)}.` : "";
+  const rememberFields = h("div", { class: "form" },
+    h("div", { class: "form-grid" }, field(withHelp("Remember the typed password", "keychain"), remember, stored || "Never in the connections file itself.")),
+    p?.passwordStored ? h("label", { class: "check" }, forget, ` Forget the password stored in ${storeName(p.passwordStored)}`) : null);
   const saveFields = h("div", { class: "form" },
     h("div", { class: "form-grid" },
-      field("Description", desc), field("Password environment variable", pwEnv, "Used when no password is typed.")),
-    h("label", { class: "check" }, keychain, " Remember the typed password in the OS keychain (not in any file)", help("keychain")),
-    p && !p.readOnly ? h("label", { class: "check" }, forget, " Forget the password stored in the keychain") : null);
-  const syncSave = () => { saveFields.hidden = !save.checked; };
+      field("Description", desc), field("Password environment variable", pwEnv, "Used when no password is typed.")));
+  // A read-only preset (lab file) can't be edited, but its password can be remembered.
+  const syncSave = () => { saveFields.hidden = !save.checked; rememberFields.hidden = !save.checked && !p; };
   save.addEventListener("change", syncSave);
   syncSave();
   const body = h("div", { class: "form" },
@@ -582,7 +605,7 @@ async function openDeviceDialog(edit?: Device) {
       field(withHelp("SSH jump hosts", "jump"), jumps, "comma-separated chain"), field("SSH key file", identity),
       field(withHelp("YANG models", "models"), modelSrc), field("Model version", modelVer)),
     h("label", { class: "check" }, save, " Save this device (passwords never go into the file)"),
-    saveFields);
+    saveFields, rememberFields);
   const buttons = [{ label: "Connect", primary: true, value: "connect" }, { label: "Add to list", value: "add" }];
   const removable = edit && (!edit.preset || !edit.preset.readOnly);
   if (removable) buttons.push({ label: edit!.preset ? "Delete saved device" : "Remove", value: "remove" });
@@ -619,9 +642,9 @@ async function openDeviceDialog(edit?: Device) {
         models, paths: edit?.paths, yangDirs: edit?.yangDirs, tags: p?.tags,
       };
       try {
-        if (keychain.checked && !password.value) { toast("Type the password to remember", "err"); continue; }
-        const saved = await api.savePreset(preset, { password: keychain.checked ? password.value : undefined, rememberPassword: keychain.checked, forgetPassword: forget.checked });
-        if (keychain.checked) toast("Password stored in the OS keychain");
+        if (remember.value && !password.value) { toast("Type the password to remember", "err"); continue; }
+        const saved = await api.savePreset(preset, { password: remember.value ? password.value : undefined, rememberPassword: !!remember.value, passwordStore: remember.value || undefined, forgetPassword: forget.checked });
+        if (remember.value) toast(`Password stored in ${storeName(remember.value)}`);
         if (p && !p.readOnly && p.name !== saved.name) await api.deletePreset(p.name).catch(() => {}); // renamed
         if (edit && !edit.preset) devices.splice(devices.indexOf(edit), 1); // unsaved device became saved
         await loadDevices();
@@ -630,6 +653,15 @@ async function openDeviceDialog(edit?: Device) {
         toast(errText(e), "err");
         continue;
       }
+    } else if (p && (remember.value || forget.checked)) {
+      // not saved as a new device: remember (or forget) the password of the preset itself
+      if (remember.value && !forget.checked && !password.value) { toast("Type the password to remember", "err"); continue; }
+      try {
+        const res = await api.presetPassword(forget.checked ? { name: p.name, forget: true } : { name: p.name, password: password.value, store: remember.value });
+        toast(`Password ${res.message}`);
+        await loadDevices();
+      } catch (e) { toast(errText(e), "err"); continue; }
+      d = devices.find((x) => x.key === "p:" + p.name) ?? edit!;
     } else if (edit && !edit.preset) {
       d = edit;
       Object.assign(d, { name: name.value.trim() || tgt.address, target: tgt, models, description: desc.value.trim() || undefined });

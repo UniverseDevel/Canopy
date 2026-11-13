@@ -116,6 +116,7 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("GET /api/connections", s.connList)
 	api.HandleFunc("PUT /api/connections", s.connSave)
 	api.HandleFunc("DELETE /api/connections", s.connDelete)
+	api.HandleFunc("POST /api/connections/password", s.connPassword)
 	api.HandleFunc("GET /api/models/sources", s.modelSources)
 	api.HandleFunc("GET /api/models/versions", s.modelVersions)
 	api.HandleFunc("POST /api/models/load", s.modelLoad)
@@ -426,7 +427,49 @@ func (s *Server) connList(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, err, 0)
 		return
 	}
+	for i := range list {
+		_, list[i].PasswordStored = secrets.Lookup(list[i].Name, list[i].Source)
+	}
 	writeJSON(w, list)
+}
+
+// connPassword stores (or forgets) the password of any saved connection,
+// read-only ones included: in the OS keychain or in the encrypted file next to
+// its connections file.
+func (s *Server) connPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name     string `json:"name"`
+		Password string `json:"password"`
+		Store    string `json:"store"` // keychain or file
+		Forget   bool   `json:"forget"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	p, err := s.svc.Presets.Get(req.Name)
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	if req.Forget {
+		if err := secrets.Forget(p.Name, p.Source); err != nil {
+			writeErr(w, err, 0)
+			return
+		}
+		writeJSON(w, map[string]string{"message": "forgotten"})
+		return
+	}
+	if req.Password == "" {
+		writeErr(w, apperr.New(apperr.ClassUsage, apperr.CodeUsage, "no password given"), 0)
+		return
+	}
+	msg, err := secrets.Remember(req.Store, p.Name, p.Source, req.Password)
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, map[string]string{"message": msg})
 }
 
 // connSave saves a preset. Passwords in the request are ignored (the type has no
@@ -438,6 +481,7 @@ func (s *Server) connSave(w http.ResponseWriter, r *http.Request) {
 		// remove the stored one.
 		Password         string `json:"password,omitempty"`
 		RememberPassword bool   `json:"rememberPassword,omitempty"`
+		PasswordStore    string `json:"passwordStore,omitempty"` // keychain (default) or file
 		ForgetPassword   bool   `json:"forgetPassword,omitempty"`
 	}
 	if err := decode(r, &req); err != nil {
@@ -449,20 +493,21 @@ func (s *Server) connSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err, 0)
 		return
 	}
-	switch {
-	case req.RememberPassword && req.Password != "":
-		if err := secrets.Set(c.Name, req.Password); err != nil {
-			writeErr(w, err, 0)
-			return
-		}
-	case req.ForgetPassword:
-		secrets.Delete(c.Name)
-	}
 	saved, err := s.svc.Presets.Get(c.Name)
 	if err != nil {
 		writeErr(w, err, 0)
 		return
 	}
+	switch {
+	case req.RememberPassword && req.Password != "":
+		if _, err := secrets.Remember(req.PasswordStore, saved.Name, saved.Source, req.Password); err != nil {
+			writeErr(w, err, 0)
+			return
+		}
+	case req.ForgetPassword:
+		secrets.Forget(saved.Name, saved.Source)
+	}
+	_, saved.PasswordStored = secrets.Lookup(saved.Name, saved.Source)
 	writeJSON(w, saved)
 }
 

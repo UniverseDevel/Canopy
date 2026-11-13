@@ -55,6 +55,9 @@ type Connection struct {
 	// extra files (CANOPY_CONNECTIONS), which Canopy never writes.
 	Source   string `yaml:"-" json:"source,omitempty"`
 	ReadOnly bool   `yaml:"-" json:"readOnly,omitempty"`
+	// PasswordStored says where a password is kept for it, if anywhere
+	// ("keychain" or "file"); filled in for the UI, never saved.
+	PasswordStored string `yaml:"-" json:"passwordStored,omitempty"`
 }
 
 // Seen records what the device reported the last time.

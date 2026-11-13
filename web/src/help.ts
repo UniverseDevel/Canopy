@@ -61,12 +61,17 @@ const T = {
     related: ["connect", "command", "cluster"],
   },
   keychain: {
-    title: "Password in the keychain", group: "Devices",
+    title: "Remembering passwords", group: "Devices",
     body: [
-      "Opt-in: the typed password is stored in the operating system's keychain (macOS Keychain, Windows Credential Manager, Secret Service on Linux), never in a file. Saved devices then connect without asking.",
-      "Tick Forget to remove it again.",
+      "Opt-in, per saved device. A password is never written into the connections file itself; it can be kept in one of two places:",
+      [
+        "OS keychain: macOS Keychain, Windows Credential Manager or Secret Service on Linux.",
+        "Encrypted file: next to the device's connections file (`lab/connections.yaml` → `lab/connections.secrets.yaml`), encrypted with AES-256-GCM. The key is in this computer's OS keychain, so the file is useless elsewhere. Canopy makes sure git ignores it (it adds `*.secrets.yaml` to a .gitignore when needed).",
+      ],
+      "Works for read-only devices too, such as the lab ones. When a password is asked for while connecting, you can choose to remember it once it works. Storing it in one place removes it from the other; Forget removes it.",
     ],
     related: ["connect"],
+    cli: "canopy conn password NAME --store file",
   },
   cluster: {
     title: "Cluster (operator mode)", group: "Devices",

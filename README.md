@@ -213,8 +213,19 @@ Flags given with `--conn` override the saved values. `get` and `generate gnmic` 
 the saved paths when no `--path` is given. A preset stores target, TLS, user name,
 jump hosts and key files, preferred encoding, YANG folders, favourite paths, a
 description and tags, plus what the device reported the last time
-(`lastSeen`). **Passwords are never stored**; `--password-env` names the environment
-variable with that device's password (default `GNMI_PASSWORD`).
+(`lastSeen`). **Passwords are never written into the connections file**; `--password-env`
+names the environment variable with that device's password (default `GNMI_PASSWORD`).
+Opt-in, a password can be remembered in the OS keychain, or in an encrypted file next
+to the connections file (`lab/connections.yaml` → `lab/connections.secrets.yaml`,
+AES-256-GCM with a key kept in this computer's keychain; git-ignored, and Canopy adds
+`*.secrets.yaml` to a `.gitignore` if needed). It works for read-only presets too:
+
+```bash
+canopy conn password lab-srl1 --store file
+```
+
+In the UI the device dialog has **Remember the typed password**, and the password prompt
+offers to remember it once the connect works.
 
 Presets live in `canopy conn path` (the user config folder, or `$CANOPY_CONFIG_DIR`).
 Extra read-only preset files, for example a team file, are added with

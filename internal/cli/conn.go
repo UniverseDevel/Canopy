@@ -22,16 +22,25 @@ func newConnCmd(g *globals) *cobra.Command {
 		Short: "Manage saved connections (presets)",
 		Long: `Saved connections keep target, TLS, jump host and working settings (YANG
 folders, favourite paths, encoding) under a name, for use with --conn and in the UI.
-Passwords are never saved; a connection can name the environment variable that
-holds its password (--password-env, default GNMI_PASSWORD).
+Passwords aren't saved with the connection. A connection can name the
+environment variable that holds its password (--password-env, default
+GNMI_PASSWORD), or keep it, opt-in, in the OS keychain or in an encrypted file
+next to its connections file (<name>.secrets.yaml, git-ignored, key in the
+keychain): see 'canopy conn password'.
 
 Your presets live in the user config folder ('canopy conn path'). Extra read-only
 files can be added with CANOPY_CONNECTIONS (separated like PATH), for example the
 lab presets in lab/connections.yaml.`,
 	}
-	c.AddCommand(newConnListCmd(g), newConnShowCmd(g), newConnSaveCmd(g), newConnRmCmd(g), newConnPathCmd(g), &cobra.Command{
-		Use: "forget-password NAME", Short: "Remove a stored password from the OS keychain", Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error { return secrets.Delete(args[0]) },
+	c.AddCommand(newConnListCmd(g), newConnShowCmd(g), newConnSaveCmd(g), newConnRmCmd(g), newConnPathCmd(g), newConnPasswordCmd(g), &cobra.Command{
+		Use: "forget-password NAME", Short: "Remove a stored password (keychain and encrypted file)", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			src := ""
+			if p, err := g.presets().Get(args[0]); err == nil {
+				src = p.Source
+			}
+			return secrets.Forget(args[0], src)
+		},
 	})
 	return c
 }
@@ -95,6 +104,7 @@ func newConnSaveCmd(g *globals) *cobra.Command {
 	var f targetFlags
 	var desc, enc, pwEnv, modelSet string
 	var remember bool
+	var pwStore string
 	var tags, yangDirs, paths []string
 	cmd := &cobra.Command{
 		Use:   "save NAME",
@@ -157,7 +167,7 @@ flags given now replace its values, others are kept.`,
 				if pw == "" {
 					return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "--remember-password needs GNMI_PASSWORD or a prompt")
 				}
-				if err := secrets.Set(name, pw); err != nil {
+				if _, err := secrets.Remember(pwStore, name, g.presets().Path, pw); err != nil {
 					return err
 				}
 			}
@@ -181,7 +191,8 @@ flags given now replace its values, others are kept.`,
 	cmd.Flags().StringVar(&pwEnv, "password-env", "", "environment variable holding this device's password (default GNMI_PASSWORD)")
 	cmd.Flags().StringSliceVarP(&yangDirs, "yang", "y", nil, "YANG folders for this device")
 	cmd.Flags().StringVar(&modelSet, "models", "", "model set from GitHub, SOURCE@VERSION (default: detect from the device)")
-	cmd.Flags().BoolVar(&remember, "remember-password", false, "store the password (GNMI_PASSWORD or prompt) in the OS keychain")
+	cmd.Flags().BoolVar(&remember, "remember-password", false, "store the password (GNMI_PASSWORD or prompt), see --password-store")
+	cmd.Flags().StringVar(&pwStore, "password-store", "keychain", "where --remember-password keeps it: keychain, or file (encrypted, next to the connections file, git-ignored)")
 	cmd.Flags().StringSliceVarP(&paths, "path", "p", nil, "favourite paths (used by 'get' when no --path is given)")
 	return cmd
 }
@@ -217,4 +228,47 @@ func newConnPathCmd(g *globals) *cobra.Command {
 			})
 		},
 	}
+}
+
+func newConnPasswordCmd(g *globals) *cobra.Command {
+	var store string
+	cmd := &cobra.Command{
+		Use:   "password NAME",
+		Short: "Remember a saved connection's password (keychain or encrypted file)",
+		Long: `Stores the password for a saved connection, including read-only ones such as
+the lab presets, from GNMI_PASSWORD or a prompt.
+
+--store keychain (default) keeps it in the OS keychain. --store file keeps it in
+an encrypted file next to the connection's file (lab/connections.yaml ->
+lab/connections.secrets.yaml): AES-256-GCM with a key that lives in this
+computer's OS keychain, so the file is useless elsewhere. Canopy makes sure git
+ignores the file (it adds *.secrets.yaml to a .gitignore when needed).
+Storing it in one place removes it from the other.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, err := g.presets().Get(args[0])
+			if err != nil {
+				return err
+			}
+			pw := os.Getenv("GNMI_PASSWORD")
+			if p.PasswordEnv != "" && os.Getenv(p.PasswordEnv) != "" {
+				pw = os.Getenv(p.PasswordEnv)
+			}
+			if pw == "" && g.interactive() {
+				pw, _ = g.prompt("Password for "+p.Name+": ", true)
+			}
+			if pw == "" {
+				return apperr.New(apperr.ClassUsage, apperr.CodeUsage, "no password: set GNMI_PASSWORD or run in a terminal")
+			}
+			msg, err := secrets.Remember(store, p.Name, p.Source, pw)
+			if err != nil {
+				return err
+			}
+			return g.result(cmd, map[string]string{"name": p.Name, "store": store, "message": msg}, func(w io.Writer) {
+				fmt.Fprintf(w, "%s: password %s\n", p.Name, msg)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&store, "store", "keychain", "keychain, or file (encrypted, git-ignored)")
+	return cmd
 }
