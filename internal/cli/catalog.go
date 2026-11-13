@@ -261,3 +261,97 @@ per device in the model cache; --refresh downloads them again.`,
 	cmd.Flags().BoolVar(&req.Refresh, "refresh", false, "download again instead of using the earlier download")
 	return cmd
 }
+
+func cacheKind(source string) string {
+	switch source {
+	case "device", "shared":
+		return source
+	}
+	return "release"
+}
+
+func newModelsCacheCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "cache",
+		Short: "List the downloaded model sets and their size",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			info, err := g.service().Models.Cached()
+			if err != nil {
+				return err
+			}
+			return g.result(cmd, info, func(w io.Writer) {
+				for _, s := range info.Sets {
+					fmt.Fprintf(w, "%-9s %-24s %6d files %9s  %s\n", s.Source, s.Version, s.Files, humanBytes(s.Bytes), s.Downloaded.Local().Format("2006-01-02"))
+				}
+				fmt.Fprintf(w, "\n%d sets, %s, in %s\n", len(info.Sets), humanBytes(info.Bytes), info.Dir)
+				if sh := info.Share; sh != nil && sh.Linked > 0 {
+					fmt.Fprintf(w, "%d files are stored once and shared between sets ('canopy models share' on %s)\n", sh.Linked, sh.Time.Local().Format("2006-01-02"))
+				}
+			})
+		},
+	}
+}
+
+func newModelsRmCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rm SOURCE VERSION...",
+		Short: "Remove downloaded model sets (downloaded again when needed)",
+		Long: `Removes downloaded sets from the model cache to free space. SOURCE is a model
+source (srlinux, nxos, ...), "device" for models taken from a device over NETCONF
+(VERSION is the folder name 'canopy models cache' shows) or "shared" for the
+folders used only to resolve imports. A removed set is downloaded again when it
+is needed; it stays in the catalog.`,
+		Args: cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			m := g.service().Models
+			var out []*models.CachedSet
+			for _, v := range args[1:] {
+				s, err := m.Remove(cacheKind(args[0]), args[0], v)
+				if err != nil {
+					return err
+				}
+				out = append(out, s)
+			}
+			return g.result(cmd, out, func(w io.Writer) {
+				for _, s := range out {
+					fmt.Fprintf(w, "removed %s %s (%s)\n", s.Source, s.Version, humanBytes(s.Bytes))
+				}
+			})
+		},
+	}
+}
+
+func newModelsShareCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "share",
+		Short: "Store identical model files once (hard links) to save space",
+		Long: `Many releases contain the same files (IETF and OpenConfig modules, unchanged
+vendor modules). This stores each identical file once: the copies become hard
+links to one file. Nothing changes for Canopy, which never edits cached files;
+removing a set afterwards only frees what no other set shares. Run it again
+after downloading more sets.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			r, err := g.service().Models.Share(nil)
+			if err != nil {
+				return err
+			}
+			return g.result(cmd, r, func(w io.Writer) {
+				fmt.Fprintf(w, "%d of %d files are shared; this run saved %s\n", r.Linked, r.Files, humanBytes(r.SavedBytes))
+			})
+		},
+	}
+}
+
+func humanBytes(b int64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(b)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", b)
+}

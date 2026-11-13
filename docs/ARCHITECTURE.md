@@ -762,8 +762,11 @@ M1 is useful on its own: it already replaces most ad-hoc `gnmic` exploration.
   the pinned commit (Juniper, Huawei, Nokia in YangModels/yang), the SQLite catalog
   (`internal/catalog`, `modernc.org/sqlite`, FTS5) indexing downloaded releases in full
   and other releases from file listings, the match report, and `models prefetch`.
-  Not done from the original design: a `git` source (partial clone) and blob-SHA
-  content addressing; the cache is per release.
+  The cache is per release; `models cache`, `models rm` and `models share` (identical
+  files stored once as hard links, on request) manage its size.
+  Maybe one day: a `git` source (partial clone, for private or non-GitHub model
+  repositories) and an automatic content-addressed cache (blob SHA, files shared
+  without asking).
 - M3: done. YAML platform profiles (`internal/models/profiles`, user overrides in
   `<config>/profiles`) for SR Linux, NX-OS, IOS XR, IOS XE, Junos, Huawei, SR OS, EOS
   and OpenConfig. The version paths of IOS XR, IOS XE, Junos, SR OS and EOS are

@@ -136,6 +136,14 @@ export interface CatalogEntry {
 export interface CatalogRelease { source: string; version: string; files: number; enriched: boolean; indexedAt: string }
 export interface CatalogQuery { q?: string; source?: string; version?: string; module?: string; limit?: number }
 export interface DeviceModelsResult { dir: string; files: number; skipped?: string[]; cached: boolean; schema?: SchemaSummary }
+export interface CachedSet { kind: "release" | "device" | "shared"; source: string; version: string; dir: string; files: number; bytes: number; downloaded: string }
+export interface ShareResult { files: number; linked: number; savedBytes: number; time: string }
+export interface CacheInfo { dir: string; sets: CachedSet[]; bytes: number; share?: ShareResult }
+export const cacheApi = {
+  list: () => call<CacheInfo>("GET", "/api/models/cache"),
+  remove: (s: { kind: string; source: string; version: string }) => call<CachedSet>("POST", "/api/models/cache/remove", s),
+  share: () => call<ShareResult>("POST", "/api/models/cache/share"),
+};
 export const catalogApi = {
   fromDevice: (req: { session: string; port?: number; host?: string; acceptHostKeys?: string[]; saveHostKeys?: boolean; refresh?: boolean }) =>
     call<DeviceModelsResult>("POST", "/api/models/device", req),

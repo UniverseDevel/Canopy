@@ -5,6 +5,7 @@ import { operatorTab } from "./operator";
 import { auditConsole } from "./console";
 import { help, openHelpIndex, setHelpNav, withHelp } from "./help";
 import { openCatalog } from "./catalog";
+import { openCacheDialog } from "./cachedlg";
 import { fixturesTab } from "./fixtures";
 import { $, append, clear, copyText, field, h, modal, secretInput, toast } from "./dom";
 import { Num, stringify } from "./json";
@@ -196,6 +197,11 @@ leftBodies.Schema = h("div", { class: "left-body" },
     h("div", { class: "row model-actions" },
       h("button", { class: "link small", title: "Search the modules of all indexed releases", onclick: () => openCatalog({ sources: () => modelSources, load: (s, v) => selectModelUI(s, v).then(() => loadModelSet(s, v)) }) }, "Catalog"),
       h("button", { class: "link small", title: "Download the device's own YANG modules over NETCONF (get-schema)", onclick: () => modelsFromDevice() }, "From device"),
+      h("button", { class: "link small", title: "See, remove and share the downloaded model sets", onclick: () => openCacheDialog({
+        sources: () => modelSources,
+        loaded: () => modelSrcSel.value && modelVerSel.value ? { source: modelSrcSel.value, version: modelVerSel.value } : null,
+        changed: () => { if (modelSrcSel.value) fillModelVersions(modelVerSel.value); },
+      }) }, "Downloaded"),
       h("button", { class: "link small", title: "Load .yang files from a folder on this computer", onclick: () => { localRow.hidden = !localRow.hidden; if (!localRow.hidden) yangInput.focus(); } }, "Local folder")),
     localRow),
   schemaInfo,

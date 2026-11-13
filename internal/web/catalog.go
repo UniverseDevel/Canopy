@@ -104,3 +104,39 @@ func (s *Server) deviceModels(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, res)
 }
+
+func (s *Server) cacheList(w http.ResponseWriter, _ *http.Request) {
+	info, err := s.svc.Models.Cached()
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, info)
+}
+
+func (s *Server) cacheRemove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Kind    string `json:"kind"`
+		Source  string `json:"source"`
+		Version string `json:"version"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	set, err := s.svc.Models.Remove(req.Kind, req.Source, req.Version)
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, set)
+}
+
+func (s *Server) cacheShare(w http.ResponseWriter, _ *http.Request) {
+	res, err := s.svc.Models.Share(nil)
+	if err != nil {
+		writeErr(w, err, 0)
+		return
+	}
+	writeJSON(w, res)
+}

@@ -173,6 +173,11 @@ canopy models containing openconfig-interfaces
 canopy models index nxos 10.4-3 10.5-1
 ```
 
+Downloaded sets stay in the cache. `canopy models cache` lists them with their size,
+`canopy models rm SOURCE VERSION` removes one (it is downloaded again when needed), and
+`canopy models share` stores files that several sets contain once, as hard links. The UI
+has the same under **Downloaded** in the Models panel.
+
 `canopy models prefetch SOURCE VERSION...` downloads sets ahead of time for offline use;
 versions may be written as the device reports them (`canopy models prefetch nxos
 "10.4(3)"`).

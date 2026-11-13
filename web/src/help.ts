@@ -10,7 +10,7 @@ import { append, clear, h, modal } from "./dom";
 
 export type Target = "tab:Data" | "tab:Snapshots" | "tab:Operator" | "tab:Fixtures" | "left:Schema" | "left:Capabilities" | "console";
 
-export type TopicId = "devices" | "connect" | "tls" | "jump" | "keychain" | "cluster" | "models" | "catalog" | "netconf" | "tree" | "qualified" | "markedOnly" | "capabilities" | "read" | "dataView" | "command" | "configure" | "snapshots" | "operator" | "verify" | "fixtures" | "fixtureRun" | "shadow" | "fixtureBuild" | "console";
+export type TopicId = "devices" | "connect" | "tls" | "jump" | "keychain" | "cluster" | "models" | "catalog" | "cache" | "netconf" | "tree" | "qualified" | "markedOnly" | "capabilities" | "read" | "dataView" | "command" | "configure" | "snapshots" | "operator" | "verify" | "fixtures" | "fixtureRun" | "shadow" | "fixtureBuild" | "console";
 
 interface Topic {
   title: string;
@@ -90,7 +90,7 @@ const T = {
       "Pick another source or version here, or load a local folder of `.yang` files instead (for offline use or your own models).",
       "Modules whose imports can't be found are skipped and listed as warnings.",
     ],
-    related: ["catalog", "netconf", "tree", "capabilities"],
+    related: ["catalog", "netconf", "cache", "tree", "capabilities"],
     cli: "canopy models versions srlinux",
   },
   netconf: {
@@ -101,6 +101,15 @@ const T = {
     ],
     related: ["models", "catalog", "jump"],
     cli: "canopy models from-device --conn NAME",
+  },
+  cache: {
+    title: "Downloaded models", group: "Schema",
+    body: [
+      "Every model set Canopy downloads stays in its cache, so it is downloaded once. Downloaded lists the sets with their size; Remove deletes one to free space (it is downloaded again when needed, and stays searchable in the catalog).",
+      "Share identical files stores each file that several sets contain (IETF and OpenConfig modules, unchanged vendor modules) once, as hard links. Canopy never edits cached files, so nothing else changes. Run it again after downloading more.",
+    ],
+    related: ["models", "catalog"],
+    cli: "canopy models cache",
   },
   catalog: {
     title: "Model catalog", group: "Schema",
